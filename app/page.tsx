@@ -41,7 +41,12 @@ export default function Home() {
   const [reply,setReply] = useState("Ask a question or choose a quick action below.");
   const [query,setQuery] = useState("");
   const [lastRefresh,setLastRefresh] = useState("08:44:12");
-  const activeAgent = useMemo(() => agents.find((agent) => agent.state === "active"), []);
+  const [cycleIndex,setCycleIndex] = useState(2);
+  const runtimeAgents = useMemo(() => agents.map((agent,index) => ({
+    ...agent,
+    state: index < cycleIndex ? "complete" as const : index === cycleIndex ? "active" as const : "queued" as const,
+  })),[cycleIndex]);
+  const activeAgent = runtimeAgents[cycleIndex];
 
   function askAssistant(prompt:string) {
     const normalized = prompt.toLowerCase();
@@ -109,9 +114,9 @@ export default function Home() {
             <button className="text-link">Open intelligence ledger <ArrowUpRight size={14}/></button>
           </section>
           <section className="panel agent-panel">
-            <PanelTitle eyebrow="AGENT ORCHESTRATION" title="Response cell" aside={<span className="working-chip"><Sparkles size={13}/> {activeAgent?.name} working</span>}/>
-            <div className="agent-flow">{agents.map((agent,index) => { const Icon=agent.icon; return <div className="agent-step" key={agent.id}><div className={`agent-icon ${agent.state}`}><Icon/></div><div className="agent-copy"><span>AGENT {agent.id}</span><strong>{agent.name}</strong><p>{agent.role}</p><small>{agent.note}</small></div>{agent.state==="complete"?<Check className="agent-state complete"/>:agent.state==="active"?<span className="agent-spinner"/>:<Clock3 className="agent-state"/>}{index<agents.length-1&&<ChevronRight className="handoff-arrow"/>}</div>; })}</div>
-            <div className="handoff-note"><Bot size={18}/><div><strong>Coordinator decision</strong><p>Impact brief will pass to Vaani after road-closure confidence exceeds 85%.</p></div><span>2m ago</span></div>
+            <PanelTitle eyebrow="AGENT ORCHESTRATION" title="Response cell" aside={<button className="working-chip" onClick={() => setCycleIndex((current) => (current + 1) % agents.length)}><Sparkles size={13}/> {activeAgent?.name} working · advance</button>}/>
+            <div className="agent-flow">{runtimeAgents.map((agent,index) => { const Icon=agent.icon; return <div className="agent-step" key={agent.id}><div className={`agent-icon ${agent.state}`}><Icon/></div><div className="agent-copy"><span>AGENT {agent.id}</span><strong>{agent.name}</strong><p>{agent.role}</p><small>{agent.note}</small></div>{agent.state==="complete"?<Check className="agent-state complete"/>:agent.state==="active"?<span className="agent-spinner"/>:<Clock3 className="agent-state"/>}{index<agents.length-1&&<ChevronRight className="handoff-arrow"/>}</div>; })}</div>
+            <div className="handoff-note"><Bot size={18}/><div><strong>Coordinator decision</strong><p>{cycleIndex === 4 ? "Alert package is ready for an authorized officer's review." : `${activeAgent.name} owns the current task; verified output will pass to ${runtimeAgents[cycleIndex + 1]?.name ?? "the duty officer"}.`}</p></div><span>now</span></div>
           </section>
           <section className="panel sitrep-panel">
             <PanelTitle eyebrow="SITUATION REPORT" title="SITREP 04 · Draft" aside={<span className="draft-chip">Auto-updating</span>}/>
