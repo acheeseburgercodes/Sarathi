@@ -13,10 +13,6 @@ async function readJson<T>(url: string, timeout = 8000): Promise<T> {
   } finally { clearTimeout(timer); }
 }
 
-function scoreRisk(rain24h: number, rainNext24h: number, probability: number, wind: number) {
-  return Math.min(100, Math.round(Math.min(rain24h / 100, 1) * 35 + Math.min(rainNext24h / 120, 1) * 30 + probability * .25 + Math.min(wind / 60, 1) * 10));
-}
-
 export async function getLiveSituation() {
   const fetchedAt = new Date().toISOString();
   const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
@@ -51,9 +47,6 @@ export async function getLiveSituation() {
   const rainNext24h = Number(next24.reduce((sum, x) => sum + x.value, 0).toFixed(1));
   const maxProbability = next24.length ? Math.max(...next24.map(x => x.probability)) : 0;
   const wind = Number(weather?.current?.wind_speed_10m ?? 0);
-  const riskScore = weather ? scoreRisk(rain24h, rainNext24h, maxProbability, wind) : null;
-  const severity = riskScore === null ? "UNKNOWN" : riskScore >= 80 ? "CRITICAL" : riskScore >= 60 ? "HIGH" : riskScore >= 35 ? "MODERATE" : "LOW";
-
   const eonetValid = eonetResult.status === "fulfilled" && Array.isArray(eonetResult.value.events);
   const usgsValid = usgsResult.status === "fulfilled" && Array.isArray(usgsResult.value.features);
   if (!eonetValid) { sources[1].status = "unavailable"; sources[1].message = "Natural event data is unavailable or malformed."; }
@@ -71,7 +64,7 @@ export async function getLiveSituation() {
     status: sources.some(s => s.status === "live") ? "available" : "unavailable",
     fetchedAt, location: CHENNAI,
     weather: weather ? { temperature: weather.current?.temperature_2m ?? null, humidity: weather.current?.relative_humidity_2m ?? null, precipitationNow: weather.current?.precipitation ?? null, rainNow: weather.current?.rain ?? null, windSpeed: wind, weatherCode: weather.current?.weather_code ?? null, rain24h, rainNext24h, maxRainProbability: maxProbability, hourly: next24.slice(0, 12) } : null,
-    risk: riskScore === null ? null : { score: riskScore, severity, basis: "Experimental weather index, not an official flood forecast. Weights: recent precipitation 35%, forecast precipitation 30%, probability 25%, wind 10%. No river, terrain or exposure data is included." },
+    risk: null,
     events: eonetEvents, earthquakes, sources,
     message: sources.some(s => s.status === "live") ? null : "Live data is temporarily unavailable. Retry to request a fresh snapshot."
   };
@@ -81,7 +74,7 @@ export async function getLiveDashboard() {
   const situation = await getLiveSituation();
   const agents = [
     { slug: "weather", name: "Weather Agent", source: "Open-Meteo", status: situation.weather ? "LIVE" : "UNAVAILABLE", value: situation.weather ? `${situation.weather.rain24h} mm` : null, metric: "Rainfall / 24h" },
-    { slug: "risk", name: "Risk Engine", source: "Derived live weather", status: situation.risk ? "LIVE" : "UNAVAILABLE", value: situation.risk?.score ?? null, metric: "Weather risk score" },
+    { slug: "risk", name: "Risk Engine", source: "No verified risk provider connected", status: "UNAVAILABLE", value: null, metric: "Risk assessment unavailable" },
     { slug: "events", name: "Natural Events Agent", source: "NASA EONET", status: situation.sources[1].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.sources[1].status === "live" ? situation.events.length : null, metric: "Open global events (up to 20)" },
     { slug: "seismic", name: "Seismic Agent", source: "USGS", status: situation.sources[2].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.sources[2].status === "live" ? situation.earthquakes.length : null, metric: "Significant events / 7d" },
   ];

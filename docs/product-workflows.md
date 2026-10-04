@@ -56,4 +56,4 @@ Create deterministic alert triggers, an operator approval queue, delivery adapte
 
 ## Current release boundary
 
-The deployed release currently provides real Open-Meteo weather, NASA EONET natural events and USGS earthquake data, real OpenStreetMap maps, source-aware warnings, specialist status, a generated text SITREP and a source-linked public assistant. Persistent incidents, the full agent orchestrator, verification, RAG, public reports, response planning, official alert delivery and realtime event streaming are planned work and must not be represented as already operational.
+The deployed release currently provides real Open-Meteo weather, NASA EONET natural events and USGS earthquake data, real OpenStreetMap maps, raw weather signals, specialist source status, a generated text source snapshot and a source-linked public assistant. It does not infer a risk score or warning severity. Persistent incidents, the full agent orchestrator, verification, RAG, public reports, response planning, verified risk assessment, official alert delivery and realtime event streaming are planned work and must not be represented as already operational.

@@ -43,5 +43,6 @@ test('hourly precipitation windows use UTC and retain correct 24-hour totals', a
   const data = await getLiveSituation();
   assert.equal(data.weather.rain24h, 48);
   assert.equal(data.weather.rainNext24h, 48);
+  assert.equal(data.risk, null);
   assert.ok(data.weather.hourly.every(hour => hour.time.endsWith('Z')));
 });

@@ -24,7 +24,7 @@ No credentials are required by the current integrations. Provider failures and m
 
 Document navigation links, responsive navigation, map pan/zoom/recenter, dark/street basemap appearance, event search and source filters, event selection and map focus, source links, rainfall/wind views, warning detail tabs, agent filters/detail, report regeneration and text download, and source-specific Ask responses.
 
-The report is a current snapshot, not a persisted incident history. Alert review opens evidence and report preparation; it does not dispatch messages. The weather index is an experimental heuristic, not an official flood forecast. No verified shelter routing, exposure data, official alert delivery, RAG or LLM service is connected.
+The report is a current source snapshot, not a persisted incident history. The warnings view shows raw Open-Meteo fields and totals calculated from its hourly series; it does not infer a risk score or severity. Alert delivery is unavailable because no official alert provider is connected. No verified shelter routing, exposure data, risk provider, RAG or LLM service is connected.
 
 ## Checks
 

@@ -1,2 +1,2 @@
 import { getLiveSituation } from "@/lib/live-data";
-export async function GET(){const data=await getLiveSituation();return Response.json({status:data.weather?"available":"unavailable",alerts:[],deliveryConfigured:false,approvalRequired:true,riskScore:data.risk?.score??null,message:"Official warning feeds and public alert delivery are not configured. Review current source evidence in the portal."})}
+export async function GET(){const data=await getLiveSituation();return Response.json({status:"unavailable",alerts:[],deliveryConfigured:false,approvalRequired:true,message:data.weather?"Weather data is available, but no official alert feed or public alert delivery provider is connected.":"No official alert feed is connected and weather data is unavailable."})}
