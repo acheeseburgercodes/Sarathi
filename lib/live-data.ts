@@ -21,7 +21,7 @@ export async function getLiveSituation() {
   const fetchedAt = new Date().toISOString();
   const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
   weatherUrl.search = new URLSearchParams({
-    latitude: String(CHENNAI.latitude), longitude: String(CHENNAI.longitude), timezone: "Asia/Kolkata",
+    latitude: String(CHENNAI.latitude), longitude: String(CHENNAI.longitude), timezone: "UTC",
     current: "temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m",
     hourly: "precipitation_probability,precipitation", past_days: "1", forecast_days: "2"
   }).toString();
@@ -38,13 +38,15 @@ export async function getLiveSituation() {
     { name: "Earthquake feed", authority: "USGS", status: usgsResult.status === "fulfilled" ? "live" : "unavailable", fetchedAt: usgsResult.status === "fulfilled" ? fetchedAt : undefined, message: usgsResult.status === "rejected" ? "Seismic feed did not respond." : undefined },
   ];
 
-  const weather = weatherResult.status === "fulfilled" ? weatherResult.value : null;
+  const rawWeather = weatherResult.status === "fulfilled" ? weatherResult.value : null;
+  const weather = rawWeather && Number.isFinite(rawWeather.current?.temperature_2m) && Number.isFinite(rawWeather.current?.wind_speed_10m) && Array.isArray(rawWeather.hourly?.time) && rawWeather.hourly.time.length > 24 && rawWeather.hourly?.precipitation?.every((n: unknown) => typeof n === "number" && Number.isFinite(n)) && rawWeather.hourly?.precipitation_probability?.every((n: unknown) => typeof n === "number" && Number.isFinite(n)) ? rawWeather : null;
+  if (!weather) { sources[0].status = "unavailable"; sources[0].message = "Weather data is unavailable or incomplete."; }
   const hourlyTimes: string[] = weather?.hourly?.time ?? [];
   const hourlyRain: number[] = weather?.hourly?.precipitation ?? [];
   const hourlyProbability: number[] = weather?.hourly?.precipitation_probability ?? [];
   const now = Date.now();
-  const last24 = hourlyTimes.map((time, index) => ({ time, value: Number(hourlyRain[index] ?? 0) })).filter(x => { const t = Date.parse(x.time); return t <= now && t >= now - 86400000; });
-  const next24 = hourlyTimes.map((time, index) => ({ time, value: Number(hourlyRain[index] ?? 0), probability: Number(hourlyProbability[index] ?? 0) })).filter(x => { const t = Date.parse(x.time); return t > now && t <= now + 86400000; });
+  const last24 = hourlyTimes.map((time, index) => ({ time: time + "Z", value: Number(hourlyRain[index]) })).filter(x => { const t = Date.parse(x.time); return t <= now && t > now - 86400000; });
+  const next24 = hourlyTimes.map((time, index) => ({ time: time + "Z", value: Number(hourlyRain[index]), probability: Number(hourlyProbability[index]) })).filter(x => { const t = Date.parse(x.time); return t > now && t <= now + 86400000; });
   const rain24h = Number(last24.reduce((sum, x) => sum + x.value, 0).toFixed(1));
   const rainNext24h = Number(next24.reduce((sum, x) => sum + x.value, 0).toFixed(1));
   const maxProbability = next24.length ? Math.max(...next24.map(x => x.probability)) : 0;
@@ -52,22 +54,26 @@ export async function getLiveSituation() {
   const riskScore = weather ? scoreRisk(rain24h, rainNext24h, maxProbability, wind) : null;
   const severity = riskScore === null ? "UNKNOWN" : riskScore >= 80 ? "CRITICAL" : riskScore >= 60 ? "HIGH" : riskScore >= 35 ? "MODERATE" : "LOW";
 
-  const eonetEvents = eonetResult.status === "fulfilled" ? (eonetResult.value.events ?? []).map((event: any) => ({
+  const eonetValid = eonetResult.status === "fulfilled" && Array.isArray(eonetResult.value.events);
+  const usgsValid = usgsResult.status === "fulfilled" && Array.isArray(usgsResult.value.features);
+  if (!eonetValid) { sources[1].status = "unavailable"; sources[1].message = "Natural event data is unavailable or malformed."; }
+  if (!usgsValid) { sources[2].status = "unavailable"; sources[2].message = "Seismic data is unavailable or malformed."; }
+  const eonetEvents = eonetValid && eonetResult.status === "fulfilled" ? eonetResult.value.events.filter((event: any) => typeof event.id === "string" && typeof event.title === "string").map((event: any) => ({
     id: event.id, title: event.title, category: event.categories?.[0]?.title ?? "Natural event", date: event.geometry?.at(-1)?.date ?? null,
     coordinates: event.geometry?.at(-1)?.coordinates ?? null, source: "NASA EONET", link: event.sources?.[0]?.url ?? null
   })) : [];
-  const earthquakes = usgsResult.status === "fulfilled" ? (usgsResult.value.features ?? []).map((feature: any) => ({
+  const earthquakes = usgsValid && usgsResult.status === "fulfilled" ? usgsResult.value.features.filter((feature: any) => typeof feature.id === "string" && typeof feature.properties?.title === "string").map((feature: any) => ({
     id: feature.id, title: feature.properties?.title, magnitude: feature.properties?.mag, time: feature.properties?.time ? new Date(feature.properties.time).toISOString() : null,
     coordinates: feature.geometry?.coordinates ?? null, source: "USGS", link: feature.properties?.url ?? null
   })) : [];
 
   return {
-    status: weather || eonetEvents.length || earthquakes.length ? "available" : "unavailable",
+    status: sources.some(s => s.status === "live") ? "available" : "unavailable",
     fetchedAt, location: CHENNAI,
     weather: weather ? { temperature: weather.current?.temperature_2m ?? null, humidity: weather.current?.relative_humidity_2m ?? null, precipitationNow: weather.current?.precipitation ?? null, rainNow: weather.current?.rain ?? null, windSpeed: wind, weatherCode: weather.current?.weather_code ?? null, rain24h, rainNext24h, maxRainProbability: maxProbability, hourly: next24.slice(0, 12) } : null,
-    risk: riskScore === null ? null : { score: riskScore, severity, basis: "Calculated from live precipitation, forecast probability and wind data." },
+    risk: riskScore === null ? null : { score: riskScore, severity, basis: "Experimental weather index, not an official flood forecast. Weights: recent precipitation 35%, forecast precipitation 30%, probability 25%, wind 10%. No river, terrain or exposure data is included." },
     events: eonetEvents, earthquakes, sources,
-    message: weather || eonetEvents.length || earthquakes.length ? null : "Live data is temporarily unavailable. Sarathi will retry automatically; no simulated values are being shown."
+    message: sources.some(s => s.status === "live") ? null : "Live data is temporarily unavailable. Retry to request a fresh snapshot."
   };
 }
 
@@ -76,8 +82,8 @@ export async function getLiveDashboard() {
   const agents = [
     { slug: "weather", name: "Weather Agent", source: "Open-Meteo", status: situation.weather ? "LIVE" : "UNAVAILABLE", value: situation.weather ? `${situation.weather.rain24h} mm` : null, metric: "Rainfall / 24h" },
     { slug: "risk", name: "Risk Engine", source: "Derived live weather", status: situation.risk ? "LIVE" : "UNAVAILABLE", value: situation.risk?.score ?? null, metric: "Weather risk score" },
-    { slug: "events", name: "Natural Events Agent", source: "NASA EONET", status: situation.sources[1].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.events.length, metric: "Open global events" },
-    { slug: "seismic", name: "Seismic Agent", source: "USGS", status: situation.sources[2].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.earthquakes.length, metric: "Significant events / 7d" },
+    { slug: "events", name: "Natural Events Agent", source: "NASA EONET", status: situation.sources[1].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.sources[1].status === "live" ? situation.events.length : null, metric: "Open global events (up to 20)" },
+    { slug: "seismic", name: "Seismic Agent", source: "USGS", status: situation.sources[2].status === "live" ? "LIVE" : "UNAVAILABLE", value: situation.sources[2].status === "live" ? situation.earthquakes.length : null, metric: "Significant events / 7d" },
   ];
   return { ...situation, agents };
 }

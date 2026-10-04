@@ -1,57 +1,38 @@
 # Sarathi
 
-Sarathi is a multi-agent crisis intelligence platform for safety and disaster response. A central coordinator routes evidence through specialist agents, records every handoff, produces a situation report, and prepares a targeted early-warning alert for human approval.
+Disaster intelligence workspace with an interactive OpenStreetMap basemap, live public feeds, source inspection, situation reports and a source-specific question interface.
 
-The current release is an interactive exercise environment. Its incident data and public guidance are simulated and clearly labelled so they cannot be confused with an operational alert.
+## Run
 
-## Agent team
-
-1. **Drishti** ingests sensor, field-team, official, and public signals.
-2. **Satya** verifies claims, identifies conflicts, and attaches confidence.
-3. **Nirikshak** models people, places, infrastructure, and likely impact.
-4. **Vaani** turns the verified impact brief into a concise SITREP.
-5. **Rakshak** drafts, translates, and targets early-warning messages.
-6. The central coordinator manages handoffs and requires an authorized officer before release.
-
-## Product surfaces
-
-- Map-first command center and event replay
-- Chronological intelligence stream with data, explanation, and source affordances
-- Deterministic warnings and human-approved alerts
-- Selective parallel agent orchestration with inspectable service details
-- Editorial SITREPs, source transparency, RAG status, and system health
-- Minimal public assistant that shows the capabilities and sources used
-- Typed server routes for dashboard, intelligence, warnings, agents, reports, alerts, sources, system status, and questions
-
-## Routes
-
-The product includes the command, intelligence, warnings, agents, agent detail,
-SITREP, SITREP detail, alerts, Ask, sources, system, and demo-event routes.
-
-The browser uses only Sarathi server routes. Provider interfaces, deterministic
-risk calculation, selective agent routing, and mock providers live in the
-Sarathi engine module; production providers can implement the same interfaces.
-
-## Run locally
-
-```bash
+```sh
 npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Build the deployable worker with:
+The development server uses http://127.0.0.1:5173. Build with `npm run build`. Run the production Worker locally with `npm run start`.
 
-```bash
+## Connected data
+
+- Open-Meteo: Chennai weather model estimates and precipitation forecasts.
+- NASA EONET: up to 20 open global natural events.
+- USGS: significant earthquakes over the past week.
+- OpenStreetMap: street-map raster tiles rendered with Leaflet, attribution visible on every map. Browser caching is preserved; no prefetch or offline tile downloading is implemented.
+
+No credentials are required by the current integrations. Provider failures and malformed responses remain unavailable; zero is displayed only for a valid zero-valued reading or successful empty feed.
+
+## Working interactions
+
+Document navigation links, responsive navigation, map pan/zoom/recenter, dark/street basemap appearance, event search and source filters, event selection and map focus, source links, rainfall/wind views, warning detail tabs, agent filters/detail, report regeneration and text download, and source-specific Ask responses.
+
+The report is a current snapshot, not a persisted incident history. Alert review opens evidence and report preparation; it does not dispatch messages. The weather index is an experimental heuristic, not an official flood forecast. No verified shelter routing, exposure data, official alert delivery, RAG or LLM service is connected.
+
+## Checks
+
+```sh
+npx tsc --noEmit
+node --test tests/live-data.test.mjs
+npx eslint components/sarathi-portal.tsx components/operational-map.tsx app/api/ask/route.ts
 npm run build
 ```
 
-Copy .env.example to .env.local when adding real providers. Never put provider
-credentials in browser code.
-
-## Safety model
-
-Sarathi separates observation, verification, analysis, communication, and release. Unverified public signals stay visibly marked, confidence accompanies forecasts, exercise data is labelled, and outward alerts cannot be sent without a human decision.
-
-## Status
-
-This repository contains a polished working prototype for the InnoVax AI for Safety and Disaster Response track. Production integrations for live sensor feeds, CAP alert distribution, identity, durable incident storage, and agency-specific approval policy are the next deployment stage.
+Tests cover complete provider failure, partial outages, successful empty feeds, malformed responses, and UTC precipitation windows. Test fixtures are never imported into the application.

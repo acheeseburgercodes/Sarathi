@@ -1,0 +1,155 @@
+"use client";
+/* Full document links avoid the deployed vinext client-router failure. */
+/* eslint-disable @next/next/no-html-link-for-pages */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, ArrowDown, ArrowUpRight, Check, ChevronRight, CloudRain, Download, FileText, Globe2, Layers, MapPin, Menu, Network, RefreshCw, Search, Send, ShieldCheck, Waves, Wind, X, Zap } from "lucide-react";
+import { OperationalMap, type MapPoint } from "./operational-map";
+import type { getLiveDashboard } from "@/lib/live-data";
+
+type Snapshot = Awaited<ReturnType<typeof getLiveDashboard>>;
+type EventItem = MapPoint & { date?: string; time?: string; link?: string; magnitude?: number };
+export type SarathiView = "home"|"command"|"intelligence"|"warnings"|"agents"|"agent"|"sitrep"|"sitrep-detail"|"alerts"|"ask"|"sources"|"system"|"event";
+const navigation = [["Home", "/", "home"], ["Command", "/command", "command"], ["Intelligence", "/intelligence", "intelligence"], ["Warnings", "/warnings", "warnings"], ["Agents", "/agents", "agents"], ["SITREP", "/sitrep", "sitrep"], ["Ask", "/ask", "ask"]];
+const fmt = (value: number | null | undefined, unit = "") => value == null ? "Unavailable" : `${value}${unit}`;
+const time = (value?: string) => value ? new Date(value).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—";
+const safeLink = (url?: string) => url && /^https?:\/\//.test(url) ? url : undefined;
+
+function useSnapshot() {
+  const [data, setData] = useState<Snapshot | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const refresh = useCallback(async () => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("The intelligence service did not respond.");
+      const snapshot: Snapshot = await response.json();
+      setData(snapshot);
+      if (snapshot.status === "unavailable") setError(snapshot.message || "Sources are unavailable.");
+    } catch { setData(null); setError("Unable to reach live sources. Retry when your connection is available."); }
+    finally { setBusy(false); }
+  }, []);
+  useEffect(() => {
+    // The initial request intentionally shares the manual refresh state machine.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
+  }, [refresh]);
+  return { data, busy, error, refresh };
+}
+type Live = ReturnType<typeof useSnapshot>;
+
+export function SarathiApp({ view, detail }: { view: SarathiView; detail?: string }) {
+  const live = useSnapshot();
+  const [menu, setMenu] = useState(false);
+  const active = view === "agent" ? "agents" : view === "sitrep-detail" ? "sitrep" : view === "event" ? "intelligence" : view === "alerts" ? "warnings" : view;
+  const connected = live.data?.sources.filter(s => s.status === "live").length;
+  return <div className="portal">
+    <header className="portal-header">
+      <a className="brand" href="/" aria-label="Sarathi home"><Zap/><span><b>SARATHI</b><small>Command Center</small></span></a>
+      <nav className={menu ? "portal-nav expanded" : "portal-nav"} aria-label="Main navigation">{navigation.map(([label, href, name]) => <a key={href} href={href} aria-current={active === name ? "page" : undefined}>{label}</a>)}</nav>
+      <a href="/system" className="connection-status"><span>Status</span><i className={live.busy ? "pending" : connected ? "online" : "offline"}/></a>
+      <button className="menu-toggle" aria-expanded={menu} aria-label="Toggle navigation" onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button>
+    </header>
+    <div className={view === "home" ? "home-shell" : "workspace"}>
+      {view === "home" && <Home live={live}/>}
+      {view === "command" && <Command live={live}/>}
+      {(view === "intelligence" || view === "event") && <Intelligence live={live} detail={detail}/>}
+      {(view === "warnings" || view === "alerts") && <Warnings live={live} alerts={view === "alerts"}/>}
+      {(view === "agents" || view === "agent") && <Agents live={live} detail={detail}/>}
+      {(view === "sitrep" || view === "sitrep-detail") && <Sitrep live={live}/>}
+      {view === "ask" && <Ask/>}
+      {(view === "sources" || view === "system") && <Sources live={live} system={view === "system"}/>}
+    </div>
+    <footer className="portal-footer"><span>SARATHI <i/> Disaster intelligence</span><div><a href="/sources">Sources</a><a href="/system">System</a><a href="/alerts">Alert review</a><a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">Report map issue</a></div></footer>
+  </div>;
+}
+
+function Heading({ number, title, subtitle, live }: { number: string; title: string; subtitle: string; live?: Live }) {
+  return <div className="view-heading"><div><span>{number}</span><section><h1>{title}</h1><p>{subtitle}</p></section></div>{live && <button className="button subtle" onClick={live.refresh} disabled={live.busy}><RefreshCw className={live.busy ? "spinning" : ""}/>{live.busy ? "Updating" : "Refresh"}</button>}</div>;
+}
+function State({ live }: { live: Live }) {
+  if (!live.error && !live.busy) return null;
+  return <div role="status" className={`notice ${live.error ? "failure" : ""}`}><Activity/><span>{live.error || "Connecting to weather, natural event and seismic sources…"}</span>{live.error && <button onClick={live.refresh}>Retry</button>}</div>;
+}
+function Pill({ children, tone = "blue" }: { children: React.ReactNode; tone?: string }) { return <span className={`pill ${tone}`}>{children}</span>; }
+function Metric({ label, value, unit, hint }: { label: string; value: React.ReactNode; unit?: string; hint?: string }) { return <div className="stat"><span>{label}</span><strong>{value}<small>{unit}</small></strong>{hint && <p>{hint}</p>}</div>; }
+function SourcesLine({ live }: { live: Live }) { return <div className="source-line">{live.data?.sources.map(s => <span key={s.name}><i className={s.status === "live" ? "online" : "offline"}/>{s.name}<small>{s.status === "live" ? "Connected" : "Unavailable"}</small></span>)}<time>{live.data ? `${time(live.data.fetchedAt)} IST` : "Awaiting sources"}</time></div>; }
+function scoreTone(data?: Snapshot | null) { return data?.risk ? data.risk.score >= 60 ? "red" : data.risk.score >= 35 ? "amber" : "green" : "muted"; }
+
+function Home({ live }: { live: Live }) {
+  useEffect(() => {
+    const nodes = document.querySelectorAll("[data-reveal]");
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add("in-view"); observer.unobserve(entry.target); } }), { threshold: .12 });
+    nodes.forEach(node => observer.observe(node));
+    return () => observer.disconnect();
+  }, []);
+  return <>
+    <section className="landing-intro"><p className="eyebrow"><span/> INTELLIGENCE FOR THE MOMENTS THAT MATTER</p><div><h1>See the situation.<br/><em>Coordinate the response.</em></h1><section><p>A shared picture of a changing world. Weather, hazards and specialist agents, together in one command center.</p><a className="button primary" href="/command">Enter command center <ArrowUpRight/></a></section></div></section>
+    <section className="landing-map"><OperationalMap/><div className="map-caption"><span className="eyebrow">REGIONAL OPERATIONS</span><h2>Chennai, India</h2><p><MapPin/>13.0827° N · 80.2707° E</p></div><div className="landing-weather"><div><CloudRain/><Pill tone={live.data?.weather ? "green" : "muted"}>{live.busy ? "CONNECTING" : live.data?.weather ? "CONNECTED" : "UNAVAILABLE"}</Pill></div><span>Precipitation · last 24h</span><strong>{live.data?.weather?.rain24h ?? "—"}<small>mm</small></strong><p>{live.data?.weather ? `Open-Meteo · ${time(live.data.fetchedAt)} IST` : "Waiting for current weather data"}</p><a href="/command">Explore current conditions <ChevronRight/></a></div><div className="map-label">REAL STREET MAP <i/> Drag to explore · + / − to zoom</div></section>
+    <SourcesLine live={live}/><State live={live}/>
+    <a className="discover" href="#platform">Explore the platform <ArrowDown/></a>
+    <section id="platform" className="about-section" data-reveal><span className="eyebrow">01 / SHARED AWARENESS</span><h2>From scattered signals<br/>to a clearer picture.</h2><p>Sarathi brings public weather and hazard feeds into a focused workspace. Inspect the evidence, explore events on a real map, and prepare a situation report from the latest available data.</p></section>
+    <div className="feature-grid" data-reveal>{[["01", "Command", "Current conditions, source health and regional weather in one view.", "/command", Activity], ["02", "Intelligence", "Explore global natural events and significant earthquakes by location.", "/intelligence", Globe2], ["03", "Warnings", "Inspect weather signals, forecast precipitation and their limitations.", "/warnings", Waves], ["04", "Agents", "See specialist outputs and the sources behind each capability.", "/agents", Network], ["05", "SITREP", "Generate and download a report from a fresh source snapshot.", "/sitrep", FileText], ["06", "Ask", "Query current weather and hazards with source-linked answers.", "/ask", Send]].map(([n, title, copy, href, Icon]) => { const I = Icon as typeof Activity; return <a href={href as string} key={title as string}><header><span>{n as string}</span><I/></header><h3>{title as string}</h3><p>{copy as string}</p><ArrowUpRight/></a>; })}</div>
+    <section className="about-section team-section" data-reveal><span className="eyebrow">02 / WORKING TOGETHER</span><h2>Specialist perspectives.<br/>One operational workspace.</h2><div className="flow-strip"><span>Public sources</span><ChevronRight/><b>Sarathi coordinator</b><ChevronRight/><span>Weather · Events · Seismic</span><ChevronRight/><span>Report & review</span></div><p>Each output retains its provider and retrieval time. Missing feeds remain visibly unavailable. Experimental weather indicators are shown separately from official warnings.</p><a href="/agents" className="button subtle">Explore the agent team</a></section>
+  </>;
+}
+
+function Command({ live }: { live: Live }) {
+  const w = live.data?.weather;
+  const [tab, setTab] = useState("weather");
+  return <><Heading number="01" title="Command" subtitle="Real-time overview of the situation" live={live}/><State live={live}/>
+    <div className="command-stage"><OperationalMap/><div className="command-overlay"><div className="situation-title"><h2>Situation, {time(live.data?.fetchedAt)}</h2><span>Chennai · Tamil Nadu</span></div><div className="floating-stats"><article className={`surface risk-card ${scoreTone(live.data)}`}><header>Weather index <a href="/warnings" aria-label="Inspect weather index"><ArrowUpRight/></a></header><strong>{live.data?.risk?.score ?? "—"}<Pill tone={scoreTone(live.data)}>{live.data?.risk?.severity ?? "UNKNOWN"}</Pill></strong><p>Experimental indicator</p><small>Not an official flood warning</small></article><article className="surface intelligence-card"><header>Intelligence <a href="/intelligence" aria-label="Explore intelligence"><ArrowUpRight/></a></header><strong>{live.data ? live.data.events.length + live.data.earthquakes.length : "—"}</strong><p>Global feed events</p><small>NASA EONET · USGS</small></article><article className="surface weather-card"><header>Weather Agent <Pill tone={w ? "green" : "muted"}>{w ? "CONNECTED" : "UNAVAILABLE"}</Pill></header><div><strong>{w?.rain24h ?? "—"}<small>mm</small></strong><section><b>{fmt(w?.temperature, "°C")}</b><small>Temperature</small></section></div><p>Precipitation / last 24h</p><small>Open-Meteo model data</small></article></div></div><div className="region-chip"><MapPin/><span>Chennai monitoring region</span></div></div>
+    <SourcesLine live={live}/><div className="bottom-grid"><section className="surface forecast-panel"><header><h3>Regional outlook</h3><div className="segmented"><button aria-pressed={tab === "weather"} onClick={() => setTab("weather")}>Rainfall</button><button aria-pressed={tab === "wind"} onClick={() => setTab("wind")}>Wind</button></div></header>{w ? tab === "weather" ? <RainChart hours={w.hourly}/> : <div className="wind-reading"><Wind/><strong>{w.windSpeed}<small>km/h</small></strong><p>Current modelled wind speed</p></div> : <Empty title="Weather unavailable" copy="The weather source has not supplied usable data."/>}</section><section className="surface quick-panel"><h3>Operational workspace</h3>{[["Intelligence", "Inspect global events", "/intelligence"], ["Situation report", "Build from a fresh snapshot", "/sitrep"], ["Ask Sarathi", "Query the connected sources", "/ask"]].map(([title, subtitle, href]) => <a href={href} key={href}><div><b>{title}</b><small>{subtitle}</small></div><ChevronRight/></a>)}</section></div>
+  </>;
+}
+
+function Intelligence({ live, detail }: { live: Live; detail?: string }) {
+  const [filter, setFilter] = useState("all"); const [search, setSearch] = useState(""); const [chosen, setChosen] = useState<string | null>(detail || null);
+  const all = useMemo<EventItem[]>(() => [...(live.data?.events || []), ...(live.data?.earthquakes || [])], [live.data]);
+  const events = all.filter(e => (filter === "all" || (filter === "seismic" ? e.source === "USGS" : e.source !== "USGS")) && e.title.toLowerCase().includes(search.toLowerCase()));
+  const selected = events.find(e => e.id === chosen) || null;
+  return <><Heading number="02" title="Intelligence" subtitle="Geospatial analysis and multi-source data" live={live}/><State live={live}/><div className="intelligence-workspace"><aside className="surface layer-sidebar"><p className="eyebrow">LAYERS</p>{[["all", "All events", all.length], ["natural", "Natural hazards", all.filter(e => e.source !== "USGS").length], ["seismic", "Earthquakes", all.filter(e => e.source === "USGS").length]].map(([id, label, count]) => <button key={id} className={filter === id ? "selected" : ""} onClick={() => { setFilter(String(id)); setChosen(null); }}><i className={id === "seismic" ? "amber-dot" : "blue-dot"}/>{label}<small>{count}</small></button>)}<div className="layer-note"><Layers/><p>Markers use coordinates supplied by the original source.</p><span>Global coverage</span></div></aside><div className="intelligence-map"><OperationalMap global points={events} selected={selected} onSelect={e => setChosen(e.id)}/><label className="map-search"><Search/><input aria-label="Search events" placeholder="Search events…" value={search} onChange={e => setSearch(e.target.value)}/></label></div><aside className="surface event-inspector">{selected ? <><Pill>{selected.source}</Pill><h2>{selected.title}</h2><dl><dt>Category</dt><dd>{selected.category || "Earthquake"}</dd><dt>Reported</dt><dd>{selected.date || selected.time ? new Date(selected.date || selected.time || "").toLocaleDateString("en-IN") : "Not supplied"}</dd><dt>Coordinates</dt><dd>{selected.coordinates?.slice(0, 2).map(n => n.toFixed(3)).join(", ") || "Not supplied"}</dd>{selected.magnitude != null && <><dt>Magnitude</dt><dd>{selected.magnitude}</dd></>}</dl>{safeLink(selected.link) && <a className="button subtle" href={selected.link} target="_blank" rel="noreferrer">Open original source <ArrowUpRight/></a>}<button className="button ghost" onClick={() => setChosen(null)}>Clear selection</button></> : <><MapPin/><h2>Explore the evidence</h2><p>Select a marker or an event below to inspect its source and location.</p><span className="inspector-count">{events.length}<small>events in this view</small></span></>}</aside></div><section className="event-stream"><header><h3>Latest intelligence</h3><span>{events.length} results</span></header>{events.length ? events.map(e => <button className={chosen === e.id ? "selected" : ""} key={e.id} onClick={() => setChosen(e.id)}><i className={e.source === "USGS" ? "amber-dot" : "blue-dot"}/><div><b>{e.title}</b><small>{e.category || "Earthquake"} · {e.source}</small></div><time>{time(e.date || e.time)}</time><ChevronRight/></button>) : <Empty title={search ? "No matching events" : "No events available"} copy={search ? "Try another search or layer." : "Check source health for feed availability."}/>}</section></>;
+}
+
+function RainChart({ hours }: { hours: { time: string; value: number; probability: number }[] }) {
+  const max = Math.max(.5, ...hours.map(h => h.value));
+  return <div className="rain-chart"><div className="chart-caption"><span>Forecast precipitation / mm</span><span>Next {hours.length} hours</span></div><div className="chart-bars">{hours.map(h => <div key={h.time} title={`${time(h.time)} · ${h.value} mm · ${h.probability}% probability`}><span>{h.value}</span><i style={{ height: `${Math.max(2, h.value / max * 110)}px` }}/><small>{time(h.time)}</small></div>)}</div></div>;
+}
+function Warnings({ live, alerts }: { live: Live; alerts: boolean }) {
+  const [tab, setTab] = useState("Forecast"); const [filter, setFilter] = useState("all"); const [signal, setSignal] = useState("rain");
+  const [review, setReview] = useState(false);
+  const w = live.data?.weather;
+  const signals = w ? [{ id: "rain", title: "Forecast precipitation", value: `${w.rainNext24h} mm`, sub: "Next 24 hours", Icon: CloudRain }, { id: "wind", title: "Current wind", value: `${w.windSpeed} km/h`, sub: "Chennai model estimate", Icon: Wind }, { id: "probability", title: "Peak rain probability", value: `${w.maxRainProbability}%`, sub: "Next 24 hours", Icon: Waves }] : [];
+  const selected = signals.find(s => s.id === signal) || signals[0];
+  return <><Heading number="03" title={alerts ? "Alert review" : "Warnings"} subtitle="Weather signals and forecast outlook" live={live}/><State live={live}/><div className="warning-toolbar"><div className="segmented"><button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All signals <b>{signals.length}</b></button><button aria-pressed={filter === "rain"} onClick={() => { setFilter("rain"); setSignal("rain"); }}>Rainfall</button><button aria-pressed={filter === "wind"} onClick={() => { setFilter("wind"); setSignal("wind"); }}>Wind</button></div><a href={alerts ? "/warnings" : "/alerts"}>{alerts ? "Weather overview" : "Alert review"}<ChevronRight/></a></div><div className="warning-layout"><aside className="surface signal-list">{signals.filter(s => filter === "all" || (filter === "rain" ? s.id !== "wind" : s.id === "wind")).map(s => <button className={signal === s.id ? "selected" : ""} key={s.id} onClick={() => setSignal(s.id)}><s.Icon/><div><b>{s.title}</b><small>{s.sub}</small></div><strong>{s.value}</strong></button>)}{!w && <Empty title="Weather unavailable" copy="No warning assessment can be made without weather data."/>}<p className="signal-note">These are modelled weather signals. Official alert feeds are not connected.</p></aside><section className="surface warning-detail"><header><div><h2>{selected?.title || "Awaiting weather source"}</h2><p>Chennai, Tamil Nadu</p></div><Pill>{selected?.value || "UNAVAILABLE"}</Pill></header><div className="detail-map"><OperationalMap/></div><div className="detail-tabs">{["Forecast", "Assessment", "Sources"].map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>{tab === "Forecast" ? w ? <RainChart hours={w.hourly}/> : <Empty title="Forecast unavailable" copy="Retry the weather provider."/> : tab === "Assessment" ? <div className="assessment"><Metric label="Experimental weather index" value={live.data?.risk?.score ?? "—"} unit="/ 100"/><p>{live.data?.risk?.basis || "No usable weather data is available."}</p></div> : <div className="provenance"><a href="https://open-meteo.com/en/docs" target="_blank" rel="noreferrer">Open-Meteo forecast documentation <ArrowUpRight/></a><p>Retrieved {time(live.data?.fetchedAt)} IST. No exposure, flood extent or river-level feed is connected.</p></div>}{alerts && <div className="review-box"><ShieldCheck/><div><b>Review current evidence</b><p>Download a situation report for your response team. Public alert delivery is not configured.</p></div><button className="button subtle" onClick={() => setReview(!review)}>{review ? "Close review" : "Review evidence"}</button>{review && <div className="review-content"><p>{w ? `Forecast precipitation: ${w.rainNext24h} mm. Peak probability: ${w.maxRainProbability}%.` : "Weather evidence unavailable."}</p><a className="button primary" href="/sitrep">Prepare situation report</a></div>}</div>}</section></div></>;
+}
+
+function Agents({ live, detail }: { live: Live; detail?: string }) {
+  const [filter, setFilter] = useState("all");
+  const agents = live.data?.agents || [];
+  const chosen = agents.find(a => a.slug === detail);
+  return <><Heading number="04" title={chosen?.name || "Intelligence Agents"} subtitle="Specialized capabilities and their current outputs" live={live}/><State live={live}/>{detail ? chosen ? <><a href="/agents" className="back-link">All agents</a><section className="surface agent-output"><header><h2>{chosen.name}</h2><Pill tone={chosen.status === "LIVE" ? "green" : "muted"}>{chosen.status === "LIVE" ? "CONNECTED" : "UNAVAILABLE"}</Pill></header><Metric label={chosen.metric} value={chosen.status === "LIVE" ? chosen.value : "Unavailable"}/><dl><dt>Provider</dt><dd>{chosen.source}</dd><dt>Retrieved</dt><dd>{time(live.data?.fetchedAt)} IST</dd></dl><h3>Output provenance</h3><p>{chosen.slug === "risk" ? live.data?.risk?.basis : "This output is calculated from the current upstream response. A failed provider leaves this capability unavailable."}</p><a href="/sources" className="button subtle">Inspect source health</a></section></> : !live.busy && <Empty title="Capability not found" copy="Open the agents page to select a connected capability."/> : <><div className="coordinator surface"><Network/><div><h2>Sarathi coordinator</h2><p>Parallel source retrieval → shared snapshot → report generation</p></div><Pill>{agents.filter(a => a.status === "LIVE").length} CONNECTED</Pill></div><div className="agent-toolbar"><span>Specialist services</span><select aria-label="Filter agents" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All agents</option><option value="live">Connected only</option><option value="unavailable">Unavailable only</option></select></div><div className="agents-grid">{agents.filter(a => filter === "all" || (filter === "live" ? a.status === "LIVE" : a.status !== "LIVE")).map(a => <a href={`/agents/${a.slug}`} className="surface specialist" key={a.slug}><header><h3>{a.name}</h3><Pill tone={a.status === "LIVE" ? "green" : "muted"}>{a.status === "LIVE" ? "CONNECTED" : "UNAVAILABLE"}</Pill></header><strong>{a.status === "LIVE" ? a.value : "—"}</strong><p>{a.metric}</p><footer><span>{a.source}<small>Last retrieved {time(live.data?.fetchedAt)} IST</small></span><ArrowUpRight/></footer></a>)}</div>{!live.busy && !agents.length && <Empty title="No agent output" copy="Retry the source connections to inspect current outputs."/>}<div className="capability-note"><ShieldCheck/><p>News verification, shelter routing and public alert delivery are not connected. They are excluded from the active team.</p></div></>}</>;
+}
+
+function Sitrep({ live }: { live: Live }) {
+  const [report, setReport] = useState<Snapshot | null>(null); const [generated, setGenerated] = useState(false);
+  const current = report || live.data;
+  async function generate() { await live.refresh(); setGenerated(true); setReport(null); }
+  function download() {
+    if (!current) return;
+    const w = current.weather;
+    const text = `SARATHI SITUATION REPORT\nChennai, Tamil Nadu\nRetrieved: ${current.fetchedAt}\n\nWEATHER\n${w ? `Temperature: ${w.temperature} C\nPrecipitation last 24h: ${w.rain24h} mm\nForecast next 24h: ${w.rainNext24h} mm\nWind: ${w.windSpeed} km/h` : "Weather unavailable."}\n\nSOURCES\n${current.sources.map(s => `${s.name}: ${s.status}`).join("\n")}\n\nLIMITATIONS\n${current.risk?.basis || "No risk assessment available."}\nNo official warnings, exposure estimates or shelter feed is connected.`;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" })); const a = document.createElement("a"); a.href = url; a.download = `sarathi-sitrep-${new Date().toISOString().slice(0, 10)}.txt`; a.click(); URL.revokeObjectURL(url); setReport(current);
+  }
+  return <><Heading number="05" title="Situation Report" subtitle="Source-attributed situational awareness"/><div className="report-actions"><span role="status">{generated ? "Report refreshed from the latest available snapshot." : "Current operational snapshot"}</span><button className="button subtle" disabled={!current || live.busy} onClick={download}><Download/> Download report</button><button className="button primary" disabled={live.busy} onClick={generate}><RefreshCw className={live.busy ? "spinning" : ""}/>{live.busy ? "Generating…" : "Generate new"}</button></div><State live={live}/><div className="report-layout"><aside className="surface report-index"><FileText/><b>Current SITREP</b><strong>{time(current?.fetchedAt)}</strong><small>Chennai · India</small><a href="#summary">Executive summary</a><a href="#outlook">Weather outlook</a><a href="#evidence">Source evidence</a></aside><article className="surface report-document"><header><span className="eyebrow">SITUATION REPORT</span><Pill>{current ? "SOURCE SNAPSHOT" : "AWAITING DATA"}</Pill></header><h2>Chennai</h2><p className="report-date">{current ? new Date(current.fetchedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST" : "Waiting for providers"}</p><section id="summary"><h3>Executive summary</h3><p>{current?.weather ? `Open-Meteo reports ${current.weather.temperature}°C and ${current.weather.windSpeed} km/h wind for Chennai. Modelled precipitation totals ${current.weather.rain24h} mm over the past 24 hours. The next 24-hour forecast totals ${current.weather.rainNext24h} mm with a peak precipitation probability of ${current.weather.maxRainProbability}%.` : "Weather information is unavailable. This report cannot assess local conditions until the provider responds."}</p><div className="report-stats"><Metric label="Precipitation / 24h" value={current?.weather?.rain24h ?? "—"} unit="mm"/><Metric label="Forecast / 24h" value={current?.weather?.rainNext24h ?? "—"} unit="mm"/><Metric label="Connected sources" value={current?.sources.filter(s => s.status === "live").length ?? "—"}/></div></section><section id="outlook"><h3>Weather outlook</h3>{current?.weather ? <RainChart hours={current.weather.hourly}/> : <p>Forecast unavailable.</p>}</section><section id="evidence"><h3>Source evidence</h3>{current?.sources.map(s => <div className="evidence-row" key={s.name}><span>{s.name}</span><Pill tone={s.status === "live" ? "green" : "muted"}>{s.status}</Pill></div>)}<p className="report-limits">No local flood extent, population exposure or verified shelter data is connected. This report does not establish an emergency or replace an official advisory.</p></section></article></div></>;
+}
+
+type Answer = { answer?: string | null; message?: string; selectedAgents?: string[]; sources?: { name: string; authority: string }[]; fetchedAt?: string };
+function Ask() {
+  const [query, setQuery] = useState(""); const [busy, setBusy] = useState(false); const [answer, setAnswer] = useState<Answer | null>(null);
+  async function submit(text: string) { if (busy || !text.trim()) return; setQuery(text); setBusy(true); setAnswer(null); try { const response = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: text }) }); setAnswer(await response.json()); } catch { setAnswer({ message: "The assistant service is unavailable. Please try again." }); } finally { setBusy(false); } }
+  return <><Heading number="06" title="Ask" subtitle="Natural language intelligence interface"/><div className="assistant"><div className="assistant-mark"><Zap/></div><h2>Ask SARATHI</h2><p>Explore current conditions and connected hazard feeds.</p><form onSubmit={e => { e.preventDefault(); void submit(query); }}><input aria-label="Ask Sarathi" value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about the current situation…"/><button disabled={busy || !query.trim()} aria-label="Send question">{busy ? <RefreshCw className="spinning"/> : <Send/>}</button></form><div className="suggestions">{["What is the weather in Chennai?", "What rainfall is forecast?", "Show recent earthquakes", "What natural hazards are in the feed?"].map(q => <button key={q} disabled={busy} onClick={() => submit(q)}>{q}</button>)}</div><div aria-live="polite">{busy && <p className="answer-loading">Retrieving current source data…</p>}{answer && <article className="surface answer"><header><Zap/><b>SARATHI</b><span>{time(answer.fetchedAt)}</span></header><p>{answer.answer || answer.message}</p>{answer.selectedAgents?.length ? <div className="routing-tags">{answer.selectedAgents.map(a => <Pill key={a}>{a}</Pill>)}</div> : null}<div className="answer-sources">{answer.sources?.map(s => <span key={s.name}><Check/>{s.name}</span>)}</div></article>}</div></div></>;
+}
+
+function Sources({ live, system }: { live: Live; system: boolean }) { return <><Heading number={system ? "08" : "07"} title={system ? "System health" : "Sources"} subtitle="Current connection status and source provenance" live={live}/><State live={live}/><div className="sources-grid">{live.data?.sources.map(s => <article className="surface provider" key={s.name}><header><Activity/><Pill tone={s.status === "live" ? "green" : "muted"}>{s.status}</Pill></header><h2>{s.name}</h2><p>{s.authority}</p><dl><dt>Retrieved</dt><dd>{s.status === "live" ? time(s.fetchedAt) + " IST" : "Unavailable"}</dd></dl>{s.message && <p>{s.message}</p>}<a href={s.name === "Open-Meteo" ? "https://open-meteo.com/en/docs" : s.name === "EONET" ? "https://eonet.gsfc.nasa.gov/docs/v3" : "https://earthquake.usgs.gov/earthquakes/feed/"} target="_blank" rel="noreferrer">Source documentation <ArrowUpRight/></a></article>)}</div><div className="capability-note"><ShieldCheck/><p>Only successful provider responses produce measurements. Empty successful event feeds and unavailable feeds are shown separately.</p></div></>; }
+function Empty({ title, copy }: { title: string; copy: string }) { return <div className="empty"><Activity/><h3>{title}</h3><p>{copy}</p></div>; }
