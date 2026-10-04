@@ -1,0 +1,204 @@
+import { getLiveSituation } from "./live-data";
+import { AI_LIMITS, TokenManager, selectedAgents } from "./ai-policy";
+
+type Situation = Awaited<ReturnType<typeof getLiveSituation>>;
+type AgentName = "Orchestrator" | "Weather" | "Seismic" | "Natural events" | "Knowledge" | "Verification" | "Explanation";
+type Evidence = {
+  id: string;
+  agent: AgentName;
+  source: string;
+  authority: string;
+  observedAt: string | null;
+  summary: string;
+  data?: Record<string, unknown>;
+  url?: string | null;
+};
+
+type KnowledgeItem = {
+  id: string;
+  hazards: string[];
+  title: string;
+  authority: string;
+  summary: string;
+  url: string;
+};
+
+const KNOWLEDGE: KnowledgeItem[] = [
+  {
+    id: "ndma-sachet",
+    hazards: ["alert", "warning", "safety", "flood", "earthquake", "cyclone", "fire", "evacuation"],
+    title: "SACHET National Disaster Alert Portal",
+    authority: "National Disaster Management Authority, Government of India",
+    summary: "Official national portal for authorized disaster alerts and hazard-specific public guidance. Follow its current instructions when they differ from general information.",
+    url: "https://sachet.ndma.gov.in/",
+  },
+  {
+    id: "imd-cyclone-warnings",
+    hazards: ["cyclone", "storm", "coast", "wind", "rain"],
+    title: "IMD cyclone warnings",
+    authority: "India Meteorological Department",
+    summary: "Official cyclone bulletins contain the current system location and intensity, forecast movement, likely adverse weather, expected impacts and recommended action.",
+    url: "https://mausam.imd.gov.in/imd_latest/contents/cyclone.php",
+  },
+];
+
+function weatherAgent(situation: Situation): Evidence[] {
+  const weather = situation.weather;
+  if (!weather) return [];
+  return [{
+    id: "weather-current",
+    agent: "Weather",
+    source: "Open-Meteo",
+    authority: "Open-Meteo weather API",
+    observedAt: situation.fetchedAt,
+    summary: `Open-Meteo returned current and hourly model data for ${situation.location.name}.`,
+    data: {
+      temperatureC: weather.temperature,
+      currentPrecipitationMm: weather.precipitationNow,
+      modelledPrecipitationPrevious24hMm: weather.rain24h,
+      forecastPrecipitationNext24hMm: weather.rainNext24h,
+      peakForecastProbabilityPercent: weather.maxRainProbability,
+      windSpeedKmh: weather.windSpeed,
+    },
+    url: "https://open-meteo.com/en/docs",
+  }];
+}
+
+function seismicAgent(situation: Situation): Evidence[] {
+  return situation.earthquakes.slice(0, 5).map((event: { time: string | null; title: string; magnitude: number | null; coordinates: number[] | null; link: string | null }, index: number) => ({
+    id: `seismic-${index}`,
+    agent: "Seismic" as const,
+    source: "USGS",
+    authority: "United States Geological Survey",
+    observedAt: event.time,
+    summary: event.title,
+    data: { magnitude: event.magnitude, coordinates: event.coordinates },
+    url: event.link,
+  }));
+}
+
+function naturalEventsAgent(situation: Situation): Evidence[] {
+  return situation.events.slice(0, 5).map((event: { date: string | null; title: string; category: string; coordinates: number[] | null; link: string | null }, index: number) => ({
+    id: `event-${index}`,
+    agent: "Natural events" as const,
+    source: "NASA EONET",
+    authority: "NASA Earth Observatory Natural Event Tracker",
+    observedAt: event.date,
+    summary: `${event.title} — ${event.category}`,
+    data: { coordinates: event.coordinates },
+    url: event.link,
+  }));
+}
+
+function knowledgeAgent(query: string): Evidence[] {
+  const q = query.toLowerCase();
+  const matches = KNOWLEDGE.filter(item => item.hazards.some(term => q.includes(term)));
+  return (matches.length ? matches : KNOWLEDGE.slice(0, 1)).map(item => ({
+    id: item.id,
+    agent: "Knowledge" as const,
+    source: item.title,
+    authority: item.authority,
+    observedAt: null,
+    summary: item.summary,
+    url: item.url,
+  }));
+}
+
+function fallbackAnswer(query: string, evidence: Evidence[], missing: string[]) {
+  if (!evidence.length) return "No connected source returned evidence for this request. Sarathi will not invent an answer.";
+  const lines = evidence.slice(0, 6).map(item => `• ${item.summary}${item.data ? ` ${JSON.stringify(item.data)}` : ""}`);
+  const limitation = missing.length ? `\n\nUnavailable: ${missing.join(", ")}.` : "";
+  return `Current source evidence for “${query}”:\n${lines.join("\n")}${limitation}\n\nAI synthesis is unavailable until the model credential is connected.`;
+}
+
+function extractOutputText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const result = payload as { output_text?: unknown; output?: Array<{ content?: Array<{ type?: string; text?: unknown }> }> };
+  if (typeof result.output_text === "string") return result.output_text;
+  return (result.output || []).flatMap(item => item.content || []).filter(item => item.type === "output_text" && typeof item.text === "string").map(item => item.text as string).join("\n");
+}
+
+async function synthesize(query: string, evidence: Evidence[], verification: object, budget: TokenManager) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+  if (!apiKey) return { status: "unavailable" as const, model: null, answer: null, error: "OPENAI_API_KEY is not configured." };
+
+  const evidenceJson = JSON.stringify({ query, evidence: evidence.slice(0, AI_LIMITS.maxEvidenceItems), verification });
+  const instructions = [
+    "You are Sarathi, a disaster-intelligence synthesis agent.",
+    "Use only the supplied evidence. Never invent measurements, incidents, alerts, shelters, routes, risk scores or confidence values.",
+    "Clearly distinguish current API data from official guidance. State missing capabilities explicitly.",
+    "For urgent safety decisions, direct the user to the relevant official authority. Keep the answer concise.",
+    "Cite evidence inline as [1], [2], matching the evidence array order. Do not expose chain-of-thought.",
+  ].join(" ");
+  const input = `${instructions}\n\nEVIDENCE_JSON\n${evidenceJson}`;
+  budget.reserveInput(input);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_LIMITS.maxExecutionMs);
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input, max_output_tokens: AI_LIMITS.maxOutputTokens, store: false, reasoning: { effort: "minimal" } }),
+    });
+    if (!response.ok) throw new Error(`OpenAI request failed with HTTP ${response.status}.`);
+    const payload = await response.json() as { usage?: { input_tokens?: number; output_tokens?: number } };
+    budget.record(payload.usage?.input_tokens || 0, payload.usage?.output_tokens || 0);
+    const answer = extractOutputText(payload);
+    if (!answer) throw new Error("The model returned no text output.");
+    return { status: "available" as const, model, answer, error: null };
+  } catch (error) {
+    return { status: "error" as const, model, answer: null, error: error instanceof Error ? error.message : "AI synthesis failed." };
+  } finally { clearTimeout(timer); }
+}
+
+export async function runSarathi(query: string) {
+  const startedAt = Date.now();
+  const cleanQuery = query.trim().slice(0, 1000);
+  const budget = new TokenManager();
+  const selected = selectedAgents(cleanQuery);
+  const situation = await getLiveSituation();
+
+  const jobs = selected.map(agent => {
+    if (agent === "Weather") return Promise.resolve(weatherAgent(situation));
+    if (agent === "Seismic") return Promise.resolve(seismicAgent(situation));
+    if (agent === "Natural events") return Promise.resolve(naturalEventsAgent(situation));
+    return Promise.resolve(knowledgeAgent(cleanQuery));
+  });
+  const evidence = (await Promise.all(jobs)).flat().slice(0, AI_LIMITS.maxEvidenceItems);
+  const requiredSources = selected.filter(agent => agent !== "Knowledge");
+  const unavailableSources = situation.sources.filter(source => source.status !== "live").map(source => source.name);
+  const verification = {
+    status: evidence.length ? "SOURCE_VALIDATED" : "UNAVAILABLE",
+    meaning: "Payload structure and source availability were checked; this does not replace official incident verification.",
+    evidenceItems: evidence.length,
+    requiredAgents: requiredSources,
+    unavailableSources,
+  };
+  const modelResult = await synthesize(cleanQuery, evidence, verification, budget);
+  const missing = [
+    ...unavailableSources,
+    "official local warning feed",
+    "verified shelter and route data",
+    "population and infrastructure exposure data",
+  ];
+  const answer = modelResult.answer || fallbackAnswer(cleanQuery, evidence, missing);
+  return {
+    runId: crypto.randomUUID(),
+    answer,
+    fetchedAt: situation.fetchedAt,
+    ai: { status: modelResult.status, model: modelResult.model, error: modelResult.error },
+    selectedAgents: ["Orchestrator", ...selected, "Verification", "Explanation"],
+    verification,
+    evidence: evidence.map((item, index) => ({ ...item, citation: index + 1 })),
+    usage: budget.snapshot(),
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+export function getAiRuntimeStatus() {
+  return { configured: Boolean(process.env.OPENAI_API_KEY), model: process.env.OPENAI_MODEL || "gpt-5-mini", limits: AI_LIMITS, knowledgeDocuments: KNOWLEDGE.length };
+}
+
+export { AI_LIMITS } from "./ai-policy";
