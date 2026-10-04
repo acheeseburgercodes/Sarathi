@@ -1,1 +1,2 @@
-export async function GET(){return Response.json({status:"operational",services:{api:"healthy",database:"healthy",rag:"healthy",agents:"14/14",eventStream:"healthy"},tokens:{calls:6,input:8420,output:2180,cacheHitRate:.68},mode:"exercise"})}
+import { getLiveSituation } from "@/lib/live-data";
+export async function GET(){const data=await getLiveSituation();return Response.json({status:data.status==="available"?"operational":"degraded",checkedAt:data.fetchedAt,services:data.sources.map(x=>({name:x.name,authority:x.authority,status:x.status,message:x.message??null}))})}

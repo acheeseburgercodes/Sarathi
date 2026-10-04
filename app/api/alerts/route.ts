@@ -1,2 +1,2 @@
-import { incident,warnings } from "@/lib/sarathi-data";
-export async function GET(){return Response.json({alerts:warnings.filter(x=>x.score>=80),approvalRequired:true,riskScore:incident.risk.score,mode:"exercise"})}
+import { getLiveSituation } from "@/lib/live-data";
+export async function GET(){const data=await getLiveSituation();const shouldAlert=Boolean(data.risk&&data.risk.score>=60);return Response.json({status:data.status,alerts:shouldAlert?[{id:`alert-${data.fetchedAt}`,title:`${data.risk!.severity} weather conditions`,place:data.location.name,severity:data.risk!.severity,score:data.risk!.score,time:data.fetchedAt}]:[],approvalRequired:true,riskScore:data.risk?.score??null,message:data.message})}

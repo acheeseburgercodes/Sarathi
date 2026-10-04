@@ -1,2 +1,2 @@
-import { sitreps,incident } from "@/lib/sarathi-data";
-export async function GET(){return Response.json({reports:sitreps,currentIncident:incident.incidentId,mode:"exercise"})}
+import { getLiveSituation } from "@/lib/live-data";
+export async function GET(){const data=await getLiveSituation();const report=data.weather?{id:data.fetchedAt,title:`Live situation report — ${data.location.name}`,generatedAt:data.fetchedAt,severity:data.risk?.severity??"UNKNOWN",summary:`Current temperature is ${data.weather.temperature}°C with ${data.weather.rain24h} mm precipitation recorded across the last 24 hours. The next 24-hour forecast totals ${data.weather.rainNext24h} mm with a peak probability of ${data.weather.maxRainProbability}%.`,risk:data.risk,sources:data.sources.filter(x=>x.status==="live")}:null;return Response.json({status:data.status,reports:report?[report]:[],message:data.message,fetchedAt:data.fetchedAt})}
