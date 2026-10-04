@@ -15,14 +15,22 @@ The current release is an interactive exercise environment. Its incident data an
 
 ## Product surfaces
 
-- Unified risk map and operational metrics
-- Live intelligence and source-verification stream
-- Executable agent handoff pipeline
-- Auto-updating SITREP with evidence confidence
-- Human-approved early-warning workflow
-- Public crisis assistant for evacuation, shelter, and emergency guidance
-- Responsive desktop and mobile layouts
-- WebMCP tool for opening the public assistant with a chosen topic
+- Map-first command center and event replay
+- Chronological intelligence stream with data, explanation, and source affordances
+- Deterministic warnings and human-approved alerts
+- Selective parallel agent orchestration with inspectable service details
+- Editorial SITREPs, source transparency, RAG status, and system health
+- Minimal public assistant that shows the capabilities and sources used
+- Typed server routes for dashboard, intelligence, warnings, agents, reports, alerts, sources, system status, and questions
+
+## Routes
+
+The product includes the command, intelligence, warnings, agents, agent detail,
+SITREP, SITREP detail, alerts, Ask, sources, system, and demo-event routes.
+
+The browser uses only Sarathi server routes. Provider interfaces, deterministic
+risk calculation, selective agent routing, and mock providers live in the
+Sarathi engine module; production providers can implement the same interfaces.
 
 ## Run locally
 
@@ -36,6 +44,9 @@ Open `http://127.0.0.1:5173`. Build the deployable worker with:
 ```bash
 npm run build
 ```
+
+Copy .env.example to .env.local when adding real providers. Never put provider
+credentials in browser code.
 
 ## Safety model
 
