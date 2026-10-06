@@ -43,7 +43,8 @@ def print_terminal(run: dict) -> None:
     print(f"\n{line}\nAGENT EXECUTION")
     for agent in run["agents"]:
         model = f" · {agent['model']}" if agent["model"] else ""
-        print(f"  {agent['name']:<31} {agent['status']}{model}")
+        ai = f" · AI {agent['ai_status']}" if agent.get("ai_status") not in (None, "not-run", "completed") else ""
+        print(f"  {agent['name']:<31} {agent['status']}{ai}{model}")
     model_runs = [(agent["name"], agent.get("model"), agent.get("status"), agent.get("metrics"), agent.get("error")) for agent in run["agents"] if agent.get("metrics")]
     if run["central"].get("metrics"):
         model_runs.append(("Saarthi Central", run["central"].get("model"), run["central"].get("status"), run["central"]["metrics"], run["central"].get("error")))

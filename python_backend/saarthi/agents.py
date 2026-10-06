@@ -36,6 +36,9 @@ AGENTS = (
 
 def route_agents(query: str, profile: str) -> list[str]:
     lowered = query.lower()
+    if any(term in lowered for term in ("brief", "sitrep", "situation", "overview", "all sources", "multi-source")):
+        selected = ["weather", "climate", "news", "seismic", "events"]
+        return selected[:1] if profile == "remote" else selected
     selected = []
     if any(term in lowered for term in ("weather", "rain", "wind", "flood", "cyclone", "storm", "forecast")):
         selected.append("weather")
@@ -85,19 +88,21 @@ def evidence_report(agent: AgentDefinition, source: dict[str, Any]) -> str:
 
 
 def run_agent(agent: AgentDefinition, source: dict[str, Any], context: dict[str, Any], client: OpenAIResponsesClient, budget: TokenBudget, use_ai: bool, default_model: str, selected: bool) -> dict[str, Any]:
-    base = {"id": agent.id, "name": agent.name, "selected_for_ai": selected, "source_status": source["status"], "source": source["data"].get("source") if source.get("data") else None, "status": "evidence-only" if source["status"] != "unavailable" else "unavailable", "model": None, "metrics": None, "report": evidence_report(agent, source), "error": source.get("error"), "evidence": source.get("data")}
+    base = {"id": agent.id, "name": agent.name, "selected_for_ai": selected, "source_status": source["status"], "source": source["data"].get("source") if source.get("data") else None, "status": "evidence-only" if source["status"] != "unavailable" else "unavailable", "ai_status": "not-run", "model": None, "metrics": None, "report": evidence_report(agent, source), "error": source.get("error"), "evidence": source.get("data")}
     if not use_ai or not client.available or not selected or source["status"] == "unavailable":
         return base
     model = os.getenv(agent.model_env) or default_model
     try:
         result = client.run(agent=agent.id, model=model, instructions=agent.instructions, input_data={"task": context["query"], "location": context["location"], "evidence": source["data"]}, max_output_tokens=agent.max_output_tokens, budget=budget)
-        return {**base, "status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "report": result["text"] or base["report"], "error": result["error"]}
+        status = "completed" if result["status"] == "completed" else base["status"]
+        return {**base, "status": status, "ai_status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "report": result["text"] or base["report"], "error": result["error"]}
     except BudgetExceeded as error:
-        return {**base, "status": "budget-blocked", "model": model, "error": str(error)}
+        return {**base, "ai_status": "budget-blocked", "model": model, "error": str(error)}
 
 
 def run_specialists(sources: dict[str, Any], context: dict[str, Any], client: OpenAIResponsesClient, budget: TokenBudget, use_ai: bool, default_model: str, profile: str) -> list[dict[str, Any]]:
-    selected = set(route_agents(context["query"], profile))
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = [pool.submit(run_agent, agent, sources[agent.id], context, client, budget, use_ai, default_model, agent.id in selected) for agent in AGENTS]
+    selected = route_agents(context["query"], profile)
+    active_agents = [agent for agent in AGENTS if agent.id in selected]
+    with ThreadPoolExecutor(max_workers=len(active_agents)) as pool:
+        futures = [pool.submit(run_agent, agent, sources[agent.id], context, client, budget, use_ai, default_model, True) for agent in active_agents]
         return [future.result() for future in futures]

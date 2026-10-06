@@ -7,7 +7,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from .storage import LocalStore
 
@@ -156,16 +156,17 @@ SOURCE_FUNCTIONS: dict[str, Callable[[dict[str, Any], int], dict[str, Any]]] = {
 }
 
 
-def collect_sources(context: dict[str, Any], store: LocalStore, offline: bool = False, timeout: int = 12) -> dict[str, Any]:
+def collect_sources(context: dict[str, Any], store: LocalStore, offline: bool = False, timeout: int = 12, source_names: Optional[list[str]] = None) -> dict[str, Any]:
     results: dict[str, Any] = {}
+    names = source_names or list(SOURCE_FUNCTIONS)
     if offline:
-        for source in SOURCE_FUNCTIONS:
+        for source in names:
             cached = store.cached_source(source)
             results[source] = ({"status": "cached", "data": cached["payload"], "cache_age_seconds": cached["age_seconds"], "error": None} if cached else {"status": "unavailable", "data": None, "cache_age_seconds": None, "error": "No cached data is available."})
         return results
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = {pool.submit(function, context, timeout): name for name, function in SOURCE_FUNCTIONS.items()}
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        futures = {pool.submit(SOURCE_FUNCTIONS[name], context, timeout): name for name in names}
         for future in as_completed(futures):
             name = futures[future]
             try:

@@ -51,6 +51,12 @@ class RoutingTests(unittest.TestCase):
     def test_climate_queries_select_climate_specialist(self):
         self.assertEqual(route_agents("compare the climate baseline", "standard"), ["climate"])
 
+    def test_weather_question_selects_only_weather(self):
+        self.assertEqual(route_agents("weather kya hai", "standard"), ["weather"])
+
+    def test_broad_brief_selects_every_specialist(self):
+        self.assertEqual(route_agents("create a multi-source briefing", "standard"), ["weather", "climate", "news", "seismic", "events"])
+
 
 class ClimateSourceTests(unittest.TestCase):
     def test_nasa_power_needs_no_key_and_reports_optional_supplement(self):
@@ -148,6 +154,12 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(run["token_usage"]["model_calls"], 2)
         self.assertEqual(run["central"]["report"], "central output")
         self.assertEqual(run["central"]["metrics"]["total_tokens"], 125)
+
+    def test_narrow_query_omits_irrelevant_agents(self):
+        with tempfile.TemporaryDirectory() as directory, patch("saarthi.orchestrator.collect_sources", return_value=self.sources()) as collect:
+            run = run_saarthi(query="weather kya hai", root=Path(directory), use_ai=False, client=OpenAIResponsesClient(api_key=""))
+        self.assertEqual([agent["id"] for agent in run["agents"]], ["weather"])
+        self.assertEqual(collect.call_args.kwargs["source_names"], ["weather"])
 
 
 if __name__ == "__main__":

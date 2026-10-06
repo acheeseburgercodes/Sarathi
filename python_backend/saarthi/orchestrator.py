@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .agents import run_specialists
+from .agents import route_agents, run_specialists
 from .config import limits_for
 from .openai_client import OpenAIResponsesClient
 from .sources import collect_sources
@@ -42,17 +42,19 @@ def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chenn
     budget = TokenBudget(limits)
     client = client or OpenAIResponsesClient()
     default_model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
-    sources = collect_sources(context, store, offline=offline, timeout=6 if profile == "remote" else 12)
+    selected_sources = route_agents(context["query"], profile)
+    sources = collect_sources(context, store, offline=offline, timeout=6 if profile == "remote" else 12, source_names=selected_sources)
     specialists = run_specialists(sources, context, client, budget, use_ai, default_model, profile)
-    central = {"status": "evidence-only", "model": None, "metrics": None, "error": None, "report": _fallback(context, specialists)}
+    central = {"status": "evidence-only", "ai_status": "not-run", "model": None, "metrics": None, "error": None, "report": _fallback(context, specialists)}
     if use_ai and client.available:
         model = os.getenv("SARATHI_CENTRAL_MODEL") or default_model
         compact_agents = [{key: agent[key] for key in ("id", "name", "source_status", "source", "status", "report", "error")} for agent in specialists]
         try:
             result = client.run(agent="central", model=model, instructions=CENTRAL_RULES, input_data={"task": query, "location": location, "specialists": compact_agents}, max_output_tokens=500 if profile == "remote" else 2400, budget=budget)
-            central = {"status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "error": result["error"], "report": result["text"] or central["report"]}
+            status = "completed" if result["status"] == "completed" else "evidence-only"
+            central = {"status": status, "ai_status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "error": result["error"], "report": result["text"] or central["report"]}
         except BudgetExceeded as error:
-            central = {**central, "status": "budget-blocked", "error": str(error)}
+            central = {**central, "ai_status": "budget-blocked", "error": str(error)}
     run = {
         "schema_version": "1.0", "run_id": str(uuid.uuid4()), "generated_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": round((time.monotonic() - started) * 1000), "profile": profile, "connectivity": "offline" if offline else "online-with-cache-fallback",

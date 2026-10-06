@@ -24,6 +24,8 @@ npm run sarathi -- --query "Extract current evidence" --no-ai --save outputs/run
 
 Each run retrieves real data in parallel from Open-Meteo, NASA POWER, Google News RSS, USGS and NASA EONET. Weather, climate-context, news-management, seismic and natural-event agents analyze their own evidence, then report to Sarathi Central for synthesis. Without `OPENAI_API_KEY`, extraction still runs and the CLI produces an evidence-only report with an explicit AI-unavailable status.
 
+The query router fetches only relevant sources and returns only relevant specialists for narrow questions. For example, `weather kya hai` calls Open-Meteo and displays the weather agent without spending bandwidth on unrelated earthquake or wildfire feeds. Broad briefing, SITREP, situation, overview and multi-source requests select the full team. When a model call fails, live evidence remains usable and the failure is recorded separately as `ai_status`.
+
 Agents use separate Responses API calls and role-specific instructions. Set `SARATHI_WEATHER_MODEL`, `SARATHI_CLIMATE_MODEL`, `SARATHI_NEWS_MODEL`, `SARATHI_SEISMIC_MODEL`, `SARATHI_EVENTS_MODEL` or `SARATHI_CENTRAL_MODEL` to use different model or fine-tuned model IDs. The default model comes from `OPENAI_MODEL` and falls back to `gpt-5-mini`.
 
 The default run budget allows five model calls, 30,000 input tokens, 8,000 output tokens and 38,000 total tokens. Each request is preflight-counted with the Responses input-token endpoint when available and reserved in a shared ledger before execution. Every result includes per-agent and total usage. Limits can be changed through the `SARATHI_MAX_*` variables documented in `.env.example`.
