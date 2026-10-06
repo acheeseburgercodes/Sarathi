@@ -27,6 +27,7 @@ class AgentDefinition:
 
 AGENTS = (
     AgentDefinition("weather", "Weather Intelligence Agent", "SARATHI_WEATHER_MODEL", 1_000, f"{COMMON_RULES} Analyze current conditions and the next 48 hours. Model weather is not an official warning."),
+    AgentDefinition("climate", "Climate Context Agent", "SARATHI_CLIMATE_MODEL", 1_000, f"{COMMON_RULES} Compare current evidence with NASA POWER long-term climatology. Do not describe climatology as a live observation or attribute a single event to climate change."),
     AgentDefinition("news", "News Management Agent", "SARATHI_NEWS_MODEL", 1_000, f"{COMMON_RULES} Deduplicate and rank disaster reporting by relevance and recency. Attribute claims to publishers. News is not official verification."),
     AgentDefinition("seismic", "Seismic Intelligence Agent", "SARATHI_SEISMIC_MODEL", 1_000, f"{COMMON_RULES} Summarize significant USGS earthquakes. Preserve magnitude, time, and source wording. Do not infer impact from magnitude alone."),
     AgentDefinition("events", "Natural Events Agent", "SARATHI_EVENTS_MODEL", 1_000, f"{COMMON_RULES} Summarize open NASA EONET events by category and recency. The feed is not a local warning service."),
@@ -38,6 +39,8 @@ def route_agents(query: str, profile: str) -> list[str]:
     selected = []
     if any(term in lowered for term in ("weather", "rain", "wind", "flood", "cyclone", "storm", "forecast")):
         selected.append("weather")
+    if any(term in lowered for term in ("climate", "climatology", "historical", "baseline", "seasonal", "drought", "heat")):
+        selected.append("climate")
     if any(term in lowered for term in ("news", "report", "media", "brief", "sitrep", "situation")):
         selected.append("news")
     if any(term in lowered for term in ("earthquake", "quake", "seismic")):
@@ -45,7 +48,7 @@ def route_agents(query: str, profile: str) -> list[str]:
     if any(term in lowered for term in ("event", "wildfire", "volcano", "hazard", "disaster", "brief", "sitrep", "situation")):
         selected.append("events")
     if not selected:
-        selected = ["weather", "news", "seismic", "events"]
+        selected = ["weather", "climate", "news", "seismic", "events"]
     if profile == "remote":
         return selected[:1]
     return selected
@@ -59,6 +62,16 @@ def evidence_report(agent: AgentDefinition, source: dict[str, Any]) -> str:
     if agent.id == "weather":
         current = data["current"]
         return f"Open-Meteo observation: temperature {current.get('temperature_2m', 'unavailable')} °C, precipitation {current.get('precipitation', 'unavailable')} mm, wind {current.get('wind_speed_10m', 'unavailable')} km/h. {len(data['hourly'])} forecast records extracted. [weather-current]{freshness}"
+    if agent.id == "climate":
+        parameters = data.get("parameters") or {}
+        annual = {name: values.get("ANN") for name, values in parameters.items() if isinstance(values, dict)}
+        supplement = data.get("live_supplement") or {}
+        return (
+            f"NASA POWER climatology ({data.get('climatology_period') or 'period unavailable'}): "
+            f"annual mean temperature {annual.get('T2M', 'unavailable')} °C, precipitation {annual.get('PRECTOTCORR', 'unavailable')} mm/day, "
+            f"relative humidity {annual.get('RH2M', 'unavailable')}%, wind {annual.get('WS10M', 'unavailable')} m/s. "
+            f"OpenWeather supplement: {supplement.get('status', 'unavailable')}. [climate-nasa-power]{freshness}"
+        )
     collection = data["articles"] if agent.id == "news" else data["events"]
     lines = []
     for item in collection[:5]:
@@ -85,6 +98,6 @@ def run_agent(agent: AgentDefinition, source: dict[str, Any], context: dict[str,
 
 def run_specialists(sources: dict[str, Any], context: dict[str, Any], client: OpenAIResponsesClient, budget: TokenBudget, use_ai: bool, default_model: str, profile: str) -> list[dict[str, Any]]:
     selected = set(route_agents(context["query"], profile))
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futures = [pool.submit(run_agent, agent, sources[agent.id], context, client, budget, use_ai, default_model, agent.id in selected) for agent in AGENTS]
         return [future.result() for future in futures]

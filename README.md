@@ -22,9 +22,9 @@ npm run sarathi -- --query "Summarize weather and disaster news" --json
 npm run sarathi -- --query "Extract current evidence" --no-ai --save outputs/run.json
 ```
 
-Each run retrieves real data in parallel from Open-Meteo, Google News RSS, USGS and NASA EONET. Weather, news-management, seismic and natural-event agents analyze their own evidence, then report to Sarathi Central for synthesis. Without `OPENAI_API_KEY`, extraction still runs and the CLI produces an evidence-only report with an explicit AI-unavailable status.
+Each run retrieves real data in parallel from Open-Meteo, NASA POWER, Google News RSS, USGS and NASA EONET. Weather, climate-context, news-management, seismic and natural-event agents analyze their own evidence, then report to Sarathi Central for synthesis. Without `OPENAI_API_KEY`, extraction still runs and the CLI produces an evidence-only report with an explicit AI-unavailable status.
 
-Agents use separate Responses API calls and role-specific instructions. Set `SARATHI_WEATHER_MODEL`, `SARATHI_NEWS_MODEL`, `SARATHI_SEISMIC_MODEL`, `SARATHI_EVENTS_MODEL` or `SARATHI_CENTRAL_MODEL` to use different model or fine-tuned model IDs. The default model comes from `OPENAI_MODEL` and falls back to `gpt-5-mini`.
+Agents use separate Responses API calls and role-specific instructions. Set `SARATHI_WEATHER_MODEL`, `SARATHI_CLIMATE_MODEL`, `SARATHI_NEWS_MODEL`, `SARATHI_SEISMIC_MODEL`, `SARATHI_EVENTS_MODEL` or `SARATHI_CENTRAL_MODEL` to use different model or fine-tuned model IDs. The default model comes from `OPENAI_MODEL` and falls back to `gpt-5-mini`.
 
 The default run budget allows five model calls, 30,000 input tokens, 8,000 output tokens and 38,000 total tokens. Each request is preflight-counted with the Responses input-token endpoint when available and reserved in a shared ledger before execution. Every result includes per-agent and total usage. Limits can be changed through the `SARATHI_MAX_*` variables documented in `.env.example`.
 
@@ -46,7 +46,7 @@ The Python backend supports three budgets:
 | Profile | Model calls | Input | Output | Total |
 | --- | ---: | ---: | ---: | ---: |
 | `remote` | 2 | 6,000 | 1,500 | 7,500 |
-| `standard` | 5 | 30,000 | 8,000 | 38,000 |
+| `standard` | 6 | 30,000 | 8,000 | 38,000 |
 | `deep` | 7 | 60,000 | 12,000 | 72,000 |
 
 Source responses are cached in `data/saarthi.db`. Live failures can fall back to recent cache entries, while `--offline` prevents network access and uses cached evidence only. Every run is persisted to SQLite for later frontend consumption.
@@ -66,11 +66,15 @@ Each refresh updates the Realtime-enabled source snapshot rows immediately. Upst
 ## Connected data
 
 - Open-Meteo: Chennai weather model estimates and precipitation forecasts.
+- NASA POWER: long-term point climatology for temperature, precipitation, humidity and wind; no key required.
+- OpenWeather One Call: optional keyed supplement for live conditions and provider-carried government alerts. Configure `OPENWEATHER_API_KEY`; if it is absent or rejected, its fields remain unavailable.
 - NASA EONET: up to 20 open global natural events.
 - USGS: significant earthquakes over the past week.
 - OpenStreetMap: street-map raster tiles rendered with Leaflet, attribution visible on every map. Browser caching is preserved; no prefetch or offline tile downloading is implemented.
 
-No credentials are required by the current integrations. Provider failures and malformed responses remain unavailable; zero is displayed only for a valid zero-valued reading or successful empty feed.
+No credentials are required by the primary feeds. Provider failures and malformed responses remain unavailable; zero is displayed only for a valid zero-valued reading or successful empty feed.
+
+NASA POWER is the primary climate source and has no API key. To enable the optional OpenWeather supplement, subscribe to One Call in the OpenWeather account dashboard and put the raw key in `.env` as `OPENWEATHER_API_KEY=your_key_here`. Do not add quotes, a URL, or the `appid=` prefix, and never commit `.env`.
 
 ## Multi-agent AI
 

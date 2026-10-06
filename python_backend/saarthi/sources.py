@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -11,7 +12,7 @@ from typing import Any, Callable
 from .storage import LocalStore
 
 USER_AGENT = "Saarthi-Disaster-Intelligence-Python/1.0"
-CACHE_TTL = {"weather": 1800, "news": 1200, "seismic": 1800, "events": 1800}
+CACHE_TTL = {"weather": 1800, "climate": 21600, "news": 1200, "seismic": 1800, "events": 1800}
 
 
 def utc_now() -> str:
@@ -50,6 +51,62 @@ def weather_source(context: dict[str, Any], timeout: int = 12) -> dict[str, Any]
             "wind_speed_kmh": (hourly.get("wind_speed_10m") or [None] * 48)[index],
         })
     return {"source": "Open-Meteo", "authority": "Open-Meteo", "retrieved_at": utc_now(), "source_url": "https://open-meteo.com/en/docs", "current": raw["current"], "hourly": records}
+
+
+def climate_source(context: dict[str, Any], timeout: int = 12) -> dict[str, Any]:
+    """Retrieve long-term NASA climatology and an optional keyed live supplement."""
+    query = urllib.parse.urlencode({
+        "parameters": "T2M,PRECTOTCORR,RH2M,WS10M", "community": "AG",
+        "longitude": context["longitude"], "latitude": context["latitude"], "format": "JSON",
+    })
+    raw = _json(f"https://power.larc.nasa.gov/api/temporal/climatology/point?{query}", timeout)
+    parameters = (raw.get("properties") or {}).get("parameter")
+    if not isinstance(parameters, dict) or not parameters:
+        raise RuntimeError("NASA POWER returned an incomplete payload")
+
+    clean_parameters = {
+        name: {period: (None if value == -999.0 else value) for period, value in values.items()}
+        for name, values in parameters.items() if isinstance(values, dict)
+    }
+    supplement: dict[str, Any] = {
+        "provider": "OpenWeather One Call", "status": "not-configured", "current": None,
+        "daily": [], "alerts": [], "error": "OPENWEATHER_API_KEY is not configured.",
+    }
+    api_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
+    if api_key:
+        weather_query = urllib.parse.urlencode({
+            "lat": context["latitude"], "lon": context["longitude"], "units": "metric",
+            "exclude": "minutely,hourly", "appid": api_key,
+        })
+        try:
+            weather = _json(f"https://api.openweathermap.org/data/3.0/onecall?{weather_query}", timeout)
+            if not isinstance(weather.get("current"), dict):
+                raise RuntimeError("OpenWeather returned an incomplete payload")
+            current = weather["current"]
+            supplement = {
+                "provider": "OpenWeather One Call", "status": "available",
+                "current": {key: current.get(key) for key in ("dt", "temp", "feels_like", "pressure", "humidity", "wind_speed", "wind_deg", "clouds")},
+                "daily": [
+                    {"dt": item.get("dt"), "temp": item.get("temp"), "pressure": item.get("pressure"), "humidity": item.get("humidity"), "wind_speed": item.get("wind_speed"), "rain": item.get("rain")}
+                    for item in (weather.get("daily") or [])[:8]
+                ],
+                "alerts": [
+                    {"sender_name": item.get("sender_name"), "event": item.get("event"), "start": item.get("start"), "end": item.get("end"), "tags": item.get("tags") or []}
+                    for item in (weather.get("alerts") or [])[:10]
+                ],
+                "error": None,
+            }
+        except Exception as error:
+            supplement["status"] = "unavailable"
+            supplement["error"] = f"OpenWeather request failed: {error}"
+
+    header = raw.get("header") or {}
+    return {
+        "source": "NASA POWER", "authority": "NASA Prediction Of Worldwide Energy Resources",
+        "retrieved_at": utc_now(), "source_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
+        "climatology_period": header.get("range"), "parameters": clean_parameters,
+        "units": raw.get("parameters") or {}, "live_supplement": supplement,
+    }
 
 
 def news_source(context: dict[str, Any], timeout: int = 12) -> dict[str, Any]:
@@ -95,7 +152,7 @@ def events_source(_: dict[str, Any], timeout: int = 12) -> dict[str, Any]:
 
 
 SOURCE_FUNCTIONS: dict[str, Callable[[dict[str, Any], int], dict[str, Any]]] = {
-    "weather": weather_source, "news": news_source, "seismic": seismic_source, "events": events_source,
+    "weather": weather_source, "climate": climate_source, "news": news_source, "seismic": seismic_source, "events": events_source,
 }
 
 
@@ -107,7 +164,7 @@ def collect_sources(context: dict[str, Any], store: LocalStore, offline: bool = 
             results[source] = ({"status": "cached", "data": cached["payload"], "cache_age_seconds": cached["age_seconds"], "error": None} if cached else {"status": "unavailable", "data": None, "cache_age_seconds": None, "error": "No cached data is available."})
         return results
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {pool.submit(function, context, timeout): name for name, function in SOURCE_FUNCTIONS.items()}
         for future in as_completed(futures):
             name = futures[future]

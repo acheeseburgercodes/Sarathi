@@ -14,6 +14,7 @@ from saarthi.agents import route_agents  # noqa: E402
 from saarthi.config import PROFILES, TokenLimits  # noqa: E402
 from saarthi.openai_client import OpenAIResponsesClient  # noqa: E402
 from saarthi.orchestrator import run_saarthi  # noqa: E402
+from saarthi.sources import climate_source  # noqa: E402
 from saarthi.storage import LocalStore  # noqa: E402
 from saarthi.supabase import SupabaseClient  # noqa: E402
 from saarthi.token_budget import BudgetExceeded, TokenBudget  # noqa: E402
@@ -46,6 +47,23 @@ class TokenBudgetTests(unittest.TestCase):
 class RoutingTests(unittest.TestCase):
     def test_remote_profile_selects_one_relevant_specialist(self):
         self.assertEqual(route_agents("weather and earthquake briefing", "remote"), ["weather"])
+
+    def test_climate_queries_select_climate_specialist(self):
+        self.assertEqual(route_agents("compare the climate baseline", "standard"), ["climate"])
+
+
+class ClimateSourceTests(unittest.TestCase):
+    def test_nasa_power_needs_no_key_and_reports_optional_supplement(self):
+        payload = {
+            "properties": {"parameter": {"T2M": {"ANN": 27.95}, "PRECTOTCORR": {"ANN": 3.43}}},
+            "header": {"range": "test climatology"}, "parameters": {},
+        }
+        with patch.dict("os.environ", {"OPENWEATHER_API_KEY": ""}, clear=False), patch("saarthi.sources._json", return_value=payload) as request:
+            result = climate_source({"latitude": 13.0827, "longitude": 80.2707})
+        self.assertEqual(result["source"], "NASA POWER")
+        self.assertEqual(result["parameters"]["T2M"]["ANN"], 27.95)
+        self.assertEqual(result["live_supplement"]["status"], "not-configured")
+        self.assertNotIn("appid", request.call_args.args[0])
 
 
 class CacheTests(unittest.TestCase):
@@ -96,6 +114,7 @@ class OrchestrationTests(unittest.TestCase):
     def sources():
         return {
             "weather": {"status": "available", "data": {"source": "Open-Meteo", "current": {}, "hourly": []}, "cache_age_seconds": 0, "error": None},
+            "climate": {"status": "available", "data": {"source": "NASA POWER", "climatology_period": "20-year", "parameters": {}, "live_supplement": {"status": "not-configured"}}, "cache_age_seconds": 0, "error": None},
             "news": {"status": "available", "data": {"source": "News", "articles": []}, "cache_age_seconds": 0, "error": None},
             "seismic": {"status": "available", "data": {"source": "USGS", "events": []}, "cache_age_seconds": 0, "error": None},
             "events": {"status": "available", "data": {"source": "EONET", "events": []}, "cache_age_seconds": 0, "error": None},
@@ -104,7 +123,7 @@ class OrchestrationTests(unittest.TestCase):
     def test_specialists_report_to_central_without_network(self):
         with tempfile.TemporaryDirectory() as directory, patch("saarthi.orchestrator.collect_sources", return_value=self.sources()):
             run = run_saarthi(query="complete briefing", root=Path(directory), use_ai=False, client=OpenAIResponsesClient(api_key=""))
-        self.assertEqual(len(run["agents"]), 4)
+        self.assertEqual(len(run["agents"]), 5)
         self.assertEqual(run["central"]["status"], "evidence-only")
         self.assertEqual(run["token_usage"]["model_calls"], 0)
         self.assertEqual(run["token_usage"]["limits"]["max_model_calls"], PROFILES["standard"].max_model_calls)

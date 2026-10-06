@@ -17,7 +17,7 @@ class TokenLimits:
 
 PROFILES = {
     "remote": TokenLimits(2, 6_000, 1_500, 7_500, 4_000, 2_000),
-    "standard": TokenLimits(5, 30_000, 8_000, 38_000, 8_000, 6_000),
+    "standard": TokenLimits(6, 30_000, 8_000, 38_000, 8_000, 6_000),
     "deep": TokenLimits(7, 60_000, 12_000, 72_000, 16_000, 12_000),
 }
 
