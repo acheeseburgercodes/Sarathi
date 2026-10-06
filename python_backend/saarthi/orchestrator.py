@@ -44,13 +44,13 @@ def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chenn
     default_model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     sources = collect_sources(context, store, offline=offline, timeout=6 if profile == "remote" else 12)
     specialists = run_specialists(sources, context, client, budget, use_ai, default_model, profile)
-    central = {"status": "evidence-only", "model": None, "error": None, "report": _fallback(context, specialists)}
+    central = {"status": "evidence-only", "model": None, "metrics": None, "error": None, "report": _fallback(context, specialists)}
     if use_ai and client.available:
         model = os.getenv("SARATHI_CENTRAL_MODEL") or default_model
         compact_agents = [{key: agent[key] for key in ("id", "name", "source_status", "source", "status", "report", "error")} for agent in specialists]
         try:
             result = client.run(agent="central", model=model, instructions=CENTRAL_RULES, input_data={"task": query, "location": location, "specialists": compact_agents}, max_output_tokens=500 if profile == "remote" else 2400, budget=budget)
-            central = {"status": result["status"], "model": result["model"], "error": result["error"], "report": result["text"] or central["report"]}
+            central = {"status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "error": result["error"], "report": result["text"] or central["report"]}
         except BudgetExceeded as error:
             central = {**central, "status": "budget-blocked", "error": str(error)}
     run = {

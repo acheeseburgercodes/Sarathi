@@ -41,6 +41,8 @@ The dependency-free Python implementation is the primary terminal backend. On Wi
 
 `run.bat` detects the Python launcher, loads `.env` and `.env.local`, runs all source adapters and agents, prints the central report, source health and token ledger, and saves a complete JSON run under `outputs/runs`. No pip installation is required; Python 3.10 or newer is sufficient.
 
+For each executed model call, the terminal and saved JSON include the selected model, status, latency, input tokens, output tokens, total tokens, cached input tokens when reported, reasoning tokens when reported, and whether the preflight input count was exact or estimated.
+
 The Python backend supports three budgets:
 
 | Profile | Model calls | Input | Output | Total |

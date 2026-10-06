@@ -139,7 +139,7 @@ class OrchestrationTests(unittest.TestCase):
                 self.calls.append(agent)
                 reservation = budget.reserve(agent, 100, max_output_tokens)
                 budget.commit(reservation, 100, 25)
-                return {"status": "completed", "text": f"{agent} output", "model": model, "error": None}
+                return {"status": "completed", "text": f"{agent} output", "model": model, "error": None, "metrics": {"latency_ms": 12, "input_tokens": 100, "output_tokens": 25, "total_tokens": 125, "cached_input_tokens": 0, "reasoning_tokens": 0, "input_count_exact": True}}
 
         client = FakeClient()
         with tempfile.TemporaryDirectory() as directory, patch("saarthi.orchestrator.collect_sources", return_value=self.sources()):
@@ -147,6 +147,7 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(client.calls, ["weather", "central"])
         self.assertEqual(run["token_usage"]["model_calls"], 2)
         self.assertEqual(run["central"]["report"], "central output")
+        self.assertEqual(run["central"]["metrics"]["total_tokens"], 125)
 
 
 if __name__ == "__main__":

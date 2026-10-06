@@ -44,6 +44,20 @@ def print_terminal(run: dict) -> None:
     for agent in run["agents"]:
         model = f" · {agent['model']}" if agent["model"] else ""
         print(f"  {agent['name']:<31} {agent['status']}{model}")
+    model_runs = [(agent["name"], agent.get("model"), agent.get("status"), agent.get("metrics"), agent.get("error")) for agent in run["agents"] if agent.get("metrics")]
+    if run["central"].get("metrics"):
+        model_runs.append(("Saarthi Central", run["central"].get("model"), run["central"].get("status"), run["central"]["metrics"], run["central"].get("error")))
+    print("\nMODEL METRICS")
+    if not model_runs:
+        print("  No model calls executed.")
+    for name, model, status, metrics, error in model_runs:
+        cached = f" · cached input {metrics['cached_input_tokens']}" if metrics.get("cached_input_tokens") is not None else ""
+        reasoning = f" · reasoning {metrics['reasoning_tokens']}" if metrics.get("reasoning_tokens") is not None else ""
+        exact = "exact" if metrics.get("input_count_exact") else "estimated"
+        print(f"  {name} · {model or 'unknown model'} · {status}")
+        print(f"    {metrics['latency_ms']} ms · input {metrics['input_tokens']} · output {metrics['output_tokens']} · total {metrics['total_tokens']} · {exact}{cached}{reasoning}")
+        if error:
+            print(f"    error: {error}")
     print("\nSOURCE HEALTH")
     for name, source in run["source_health"].items():
         age = f" · cache {source['cache_age_seconds']}s" if source["status"] == "cached" else ""

@@ -85,13 +85,13 @@ def evidence_report(agent: AgentDefinition, source: dict[str, Any]) -> str:
 
 
 def run_agent(agent: AgentDefinition, source: dict[str, Any], context: dict[str, Any], client: OpenAIResponsesClient, budget: TokenBudget, use_ai: bool, default_model: str, selected: bool) -> dict[str, Any]:
-    base = {"id": agent.id, "name": agent.name, "selected_for_ai": selected, "source_status": source["status"], "source": source["data"].get("source") if source.get("data") else None, "status": "evidence-only" if source["status"] != "unavailable" else "unavailable", "model": None, "report": evidence_report(agent, source), "error": source.get("error"), "evidence": source.get("data")}
+    base = {"id": agent.id, "name": agent.name, "selected_for_ai": selected, "source_status": source["status"], "source": source["data"].get("source") if source.get("data") else None, "status": "evidence-only" if source["status"] != "unavailable" else "unavailable", "model": None, "metrics": None, "report": evidence_report(agent, source), "error": source.get("error"), "evidence": source.get("data")}
     if not use_ai or not client.available or not selected or source["status"] == "unavailable":
         return base
     model = os.getenv(agent.model_env) or default_model
     try:
         result = client.run(agent=agent.id, model=model, instructions=agent.instructions, input_data={"task": context["query"], "location": context["location"], "evidence": source["data"]}, max_output_tokens=agent.max_output_tokens, budget=budget)
-        return {**base, "status": result["status"], "model": result["model"], "report": result["text"] or base["report"], "error": result["error"]}
+        return {**base, "status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "report": result["text"] or base["report"], "error": result["error"]}
     except BudgetExceeded as error:
         return {**base, "status": "budget-blocked", "model": model, "error": str(error)}
 
