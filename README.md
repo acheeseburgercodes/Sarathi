@@ -53,6 +53,16 @@ Source responses are cached in `data/saarthi.db`. Live failures can fall back to
 
 The budget protects an input allocation for the central agent before specialists run: 2,000 tokens in remote mode, 6,000 in standard mode and 12,000 in deep mode. This prevents parallel specialists from consuming the entire context budget before final synthesis.
 
+### Supabase live storage
+
+Run `supabase/migrations/001_saarthi_storage.sql` in the Supabase SQL Editor, then configure `SUPABASE_URL` and the backend-only `SUPABASE_SECRET_KEY` in `.env`. The backend writes every run, the latest source snapshots, and each agent output through Supabase's Data API. Failed writes enter the local SQLite outbox and retry later.
+
+```powershell
+.\run.bat --watch --interval 300 --ai-every 12 "Maintain the Chennai situation picture"
+```
+
+Each refresh updates the Realtime-enabled source snapshot rows immediately. Upstream data freshness still depends on the source APIs and the configured polling interval. See `supabase/README.md` for keys, security rules and the future frontend subscription.
+
 ## Connected data
 
 - Open-Meteo: Chennai weather model estimates and precipitation forecasts.

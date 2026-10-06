@@ -13,6 +13,7 @@ from .config import limits_for
 from .openai_client import OpenAIResponsesClient
 from .sources import collect_sources
 from .storage import LocalStore
+from .supabase import SupabaseClient, sync_with_outbox
 from .token_budget import BudgetExceeded, TokenBudget
 
 CENTRAL_RULES = (
@@ -32,7 +33,7 @@ def _fallback(context: dict[str, Any], specialists: list[dict[str, Any]]) -> str
     return "\n".join(sections)
 
 
-def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chennai, Tamil Nadu, India", latitude: float = 13.0827, longitude: float = 80.2707, offline: bool = False, use_ai: bool = True, root: Optional[Path] = None, client: Optional[OpenAIResponsesClient] = None) -> dict[str, Any]:
+def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chennai, Tamil Nadu, India", latitude: float = 13.0827, longitude: float = 80.2707, offline: bool = False, use_ai: bool = True, root: Optional[Path] = None, client: Optional[OpenAIResponsesClient] = None, supabase: Optional[SupabaseClient] = None) -> dict[str, Any]:
     started = time.monotonic()
     root = root or Path.cwd()
     store = LocalStore(root / "data" / "saarthi.db")
@@ -59,6 +60,7 @@ def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chenn
         "source_health": {name: {"status": value["status"], "cache_age_seconds": value["cache_age_seconds"], "error": value["error"]} for name, value in sources.items()},
         "agents": specialists, "central": central, "token_usage": budget.snapshot(),
     }
+    run["supabase"] = sync_with_outbox(run, supabase or SupabaseClient.from_env(), store)
     store.save_run(run)
     return run
 

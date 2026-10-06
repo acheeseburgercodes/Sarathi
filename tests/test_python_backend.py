@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from saarthi.config import PROFILES, TokenLimits  # noqa: E402
 from saarthi.openai_client import OpenAIResponsesClient  # noqa: E402
 from saarthi.orchestrator import run_saarthi  # noqa: E402
 from saarthi.storage import LocalStore  # noqa: E402
+from saarthi.supabase import SupabaseClient  # noqa: E402
 from saarthi.token_budget import BudgetExceeded, TokenBudget  # noqa: E402
 
 
@@ -53,6 +55,40 @@ class CacheTests(unittest.TestCase):
             store.cache_source("weather", {"source": "test", "value": 7})
             cached = store.cached_source("weather")
             self.assertEqual(cached["payload"], {"source": "test", "value": 7})
+
+    def test_failed_sync_outbox_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalStore(Path(directory) / "saarthi.db")
+            run = {"run_id": "run-1", "generated_at": "2026-10-06T00:00:00Z"}
+            store.queue_sync(run, "offline")
+            self.assertEqual(store.pending_sync_count(), 1)
+            pending = store.pending_sync()[0]
+            self.assertEqual(pending["payload"], run)
+            store.mark_sync_complete(pending["id"])
+            self.assertEqual(store.pending_sync_count(), 0)
+
+
+class SupabaseTests(unittest.TestCase):
+    @staticmethod
+    def run_payload():
+        return {
+            "run_id": "11111111-1111-1111-1111-111111111111", "generated_at": "2026-10-06T00:00:00+00:00", "profile": "remote", "connectivity": "online-with-cache-fallback",
+            "context": {"location": "Chennai", "query": "brief"}, "central": {"status": "completed", "report": "report"}, "source_health": {}, "token_usage": {},
+            "agents": [{"id": "weather", "name": "Weather", "status": "completed", "model": "model", "source_status": "available", "source": "Open-Meteo", "report": "weather", "error": None, "evidence": {"source": "Open-Meteo", "authority": "Open-Meteo", "retrieved_at": "2026-10-06T00:00:00+00:00"}}],
+        }
+
+    def test_new_secret_key_uses_apikey_header_and_upserts_all_tables(self):
+        calls = []
+
+        def transport(url, body, headers, timeout):
+            calls.append((url, headers, json.loads(body)))
+
+        client = SupabaseClient("https://example.supabase.co", "sb_secret_test", transport=transport)
+        client.sync_run(self.run_payload())
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(call[1]["apikey"] == "sb_secret_test" for call in calls))
+        self.assertTrue(all("Authorization" not in call[1] for call in calls))
+        self.assertIn("saarthi_source_snapshots", calls[1][0])
 
 
 class OrchestrationTests(unittest.TestCase):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,10 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--json", action="store_true", help="Print the complete frontend-compatible JSON")
     command.add_argument("--save", metavar="PATH", help="Save JSON to a specific path")
     command.add_argument("--no-save", action="store_true", help="Do not write a run JSON file")
+    command.add_argument("--watch", action="store_true", help="Continuously refresh sources and synchronize Supabase")
+    command.add_argument("--interval", type=int, default=300, help="Watch refresh interval in seconds; minimum 30")
+    command.add_argument("--ai-every", type=int, default=0, help="In watch mode, rerun AI every N refreshes; 0 means first refresh only")
+    command.add_argument("--max-runs", type=int, default=0, help=argparse.SUPPRESS)
     return command
 
 
@@ -52,6 +57,10 @@ def print_terminal(run: dict) -> None:
     print(f"  Total  {usage['total_tokens']}/{limits['max_total_tokens']}")
     if run["ai"]["requested"] and not run["ai"]["available"]:
         print("\nAI STATUS: OPENAI_API_KEY is not configured. Evidence extraction completed without generated claims.")
+    sync = run["supabase"]
+    print(f"\nSUPABASE: {sync['status']} · pending outbox {sync['pending_runs']}")
+    if sync.get("error"):
+        print(f"  {sync['error']}")
     print(line)
 
 
@@ -67,15 +76,32 @@ def main() -> int:
     if not query:
         print("A query is required.", file=sys.stderr)
         return 2
-    run = run_saarthi(query=query, profile=args.profile, location=args.location, latitude=args.lat, longitude=args.lon, offline=args.offline, use_ai=not args.no_ai, root=ROOT)
-    if args.json:
-        print(json.dumps(run, ensure_ascii=False, indent=2))
-    else:
-        print_terminal(run)
-    if not args.no_save:
-        path = save_run_file(run, ROOT, args.save)
+    if args.watch and args.save:
+        print("--save cannot be combined with --watch; watch mode creates unique run files automatically.", file=sys.stderr)
+        return 2
+    interval = max(30, args.interval)
+    iteration = 0
+    try:
+        while True:
+            iteration += 1
+            use_ai = not args.no_ai and (iteration == 1 or (args.ai_every > 0 and iteration % args.ai_every == 0))
+            run = run_saarthi(query=query, profile=args.profile, location=args.location, latitude=args.lat, longitude=args.lon, offline=args.offline, use_ai=use_ai, root=ROOT)
+            if args.json:
+                print(json.dumps(run, ensure_ascii=False, separators=(",", ":")) if args.watch else json.dumps(run, ensure_ascii=False, indent=2), flush=True)
+            else:
+                print_terminal(run)
+            if not args.no_save:
+                path = save_run_file(run, ROOT, args.save)
+                if not args.json:
+                    print(f"Saved frontend-compatible run: {path}")
+            if not args.watch or (args.max_runs > 0 and iteration >= args.max_runs):
+                break
+            if not args.json:
+                print(f"Next live refresh in {interval} seconds. Press Ctrl+C to stop.", flush=True)
+            time.sleep(interval)
+    except KeyboardInterrupt:
         if not args.json:
-            print(f"Saved frontend-compatible run: {path}")
+            print("\nSaarthi live refresh stopped.")
     return 0
 
 

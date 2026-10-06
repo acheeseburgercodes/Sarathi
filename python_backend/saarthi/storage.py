@@ -24,6 +24,14 @@ class LocalStore:
                     generated_at TEXT NOT NULL,
                     payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS sync_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL UNIQUE,
+                    created_at REAL NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    payload TEXT NOT NULL
+                );
                 """
             )
 
@@ -54,3 +62,29 @@ class LocalStore:
                 "INSERT OR REPLACE INTO runs(run_id, generated_at, payload) VALUES(?, ?, ?)",
                 (run["run_id"], run["generated_at"], json.dumps(run, ensure_ascii=False)),
             )
+
+    def queue_sync(self, run: dict[str, Any], error: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO sync_outbox(run_id, created_at, attempts, last_error, payload) VALUES(?, ?, 1, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET attempts=sync_outbox.attempts+1, last_error=excluded.last_error, payload=excluded.payload",
+                (run["run_id"], time.time(), error[:500], json.dumps(run, ensure_ascii=False)),
+            )
+
+    def pending_sync(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT id, payload FROM sync_outbox ORDER BY id LIMIT ?", (limit,)).fetchall()
+        return [{"id": row[0], "payload": json.loads(row[1])} for row in rows]
+
+    def pending_sync_count(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute("SELECT COUNT(*) FROM sync_outbox").fetchone()
+        return int(row[0])
+
+    def mark_sync_complete(self, item_id: int) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM sync_outbox WHERE id=?", (item_id,))
+
+    def mark_sync_failed(self, item_id: int, error: str) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE sync_outbox SET attempts=attempts+1, last_error=? WHERE id=?", (error[:500], item_id))
