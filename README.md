@@ -28,6 +28,31 @@ Agents use separate Responses API calls and role-specific instructions. Set `SAR
 
 The default run budget allows five model calls, 30,000 input tokens, 8,000 output tokens and 38,000 total tokens. Each request is preflight-counted with the Responses input-token endpoint when available and reserved in a shared ledger before execution. Every result includes per-agent and total usage. Limits can be changed through the `SARATHI_MAX_*` variables documented in `.env.example`.
 
+## Python backend
+
+The dependency-free Python implementation is the primary terminal backend. On Windows, double-click `run.bat` or run it from a terminal:
+
+```powershell
+.\run.bat "Create a current disaster briefing for Chennai"
+.\run.bat --profile remote "Summarize flood conditions"
+.\run.bat --offline --no-ai "Build a report from cached evidence"
+.\run.bat --json --no-save "Return the frontend response contract"
+```
+
+`run.bat` detects the Python launcher, loads `.env` and `.env.local`, runs all source adapters and agents, prints the central report, source health and token ledger, and saves a complete JSON run under `outputs/runs`. No pip installation is required; Python 3.10 or newer is sufficient.
+
+The Python backend supports three budgets:
+
+| Profile | Model calls | Input | Output | Total |
+| --- | ---: | ---: | ---: | ---: |
+| `remote` | 2 | 6,000 | 1,500 | 7,500 |
+| `standard` | 5 | 30,000 | 8,000 | 38,000 |
+| `deep` | 7 | 60,000 | 12,000 | 72,000 |
+
+Source responses are cached in `data/saarthi.db`. Live failures can fall back to recent cache entries, while `--offline` prevents network access and uses cached evidence only. Every run is persisted to SQLite for later frontend consumption.
+
+The budget protects an input allocation for the central agent before specialists run: 2,000 tokens in remote mode, 6,000 in standard mode and 12,000 in deep mode. This prevents parallel specialists from consuming the entire context budget before final synthesis.
+
 ## Connected data
 
 - Open-Meteo: Chennai weather model estimates and precipitation forecasts.

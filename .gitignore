@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+__pycache__/
+*.py[cod]
 /.pnp
 .pnp.*
 .yarn/*
@@ -44,5 +46,6 @@ next-env.d.ts
 /.agents/
 /.codex/
 /outputs/
+/data/
 /work/
 *.tsbuildinfo
