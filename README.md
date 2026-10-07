@@ -69,6 +69,29 @@ Run `supabase/migrations/001_saarthi_storage.sql` in the Supabase SQL Editor, th
 
 Each refresh updates the Realtime-enabled source snapshot rows immediately. Upstream data freshness still depends on the source APIs and the configured polling interval. See `supabase/README.md` for keys, security rules and the future frontend subscription.
 
+### Google sign-in and profiles
+
+Run `supabase/migrations/002_auth_profiles.sql` after the storage migration. It creates a `profiles` table, copies Google email/name/avatar metadata when a user signs in, enables Row Level Security, and keeps role assignment outside the browser.
+
+In **Supabase → Authentication → Providers → Google**, enable Google and enter the OAuth client ID and client secret from Google Cloud. In Google Cloud, create a Web application OAuth client and use the callback URL shown by Supabase, normally `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`, as an authorized redirect URI. Add `http://127.0.0.1:5173` as an authorized JavaScript origin. In **Supabase → Authentication → URL Configuration**, add `http://127.0.0.1:5173/auth/callback` to the redirect allow list.
+
+The React client needs only these public values in `.env`:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Keep the Google client secret and Supabase secret/service-role keys out of all `NEXT_PUBLIC_` variables. New accounts receive the `user` role. Promote a trusted administrator from the Supabase SQL Editor:
+
+```sql
+update public.profiles
+set role = 'admin', updated_at = now()
+where email = 'trusted-admin@example.com';
+```
+
+The Intelligence map asks the browser for device location and centers there when permission is granted. Denial or unavailable geolocation leaves the global hazard map usable and displays a retry control.
+
 ## Connected data
 
 - Open-Meteo: Chennai weather model estimates and precipitation forecasts.

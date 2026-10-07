@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./portal.css";
+import { AuthProvider } from "@/components/auth-provider";
 
 export const metadata: Metadata = {
   title: "Sarathi · Crisis Intelligence Network",
@@ -18,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-IN">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><AuthProvider>{children}</AuthProvider></body>
     </html>
   );
 }
