@@ -41,6 +41,35 @@ function useSnapshot() {
 }
 type Live = ReturnType<typeof useSnapshot>;
 
+function SlidingNav({ active, expanded }: { active: string; expanded: boolean }) {
+  const navRef = useRef<HTMLElement>(null);
+  const sliderRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const slider = sliderRef.current;
+    if (!nav || !slider) return;
+    const links = Array.from(nav.querySelectorAll<HTMLAnchorElement>("a[data-route]"));
+    const place = (name: string, animate: boolean) => {
+      const link = links.find(item => item.dataset.route === name);
+      if (!link) return;
+      slider.classList.toggle("ready", animate);
+      slider.style.width = `${link.offsetWidth}px`;
+      slider.style.transform = `translateX(${link.offsetLeft}px)`;
+    };
+    const previous = sessionStorage.getItem("sarathi-nav-from") || active;
+    place(previous, false);
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => place(active, true)));
+    const resize = new ResizeObserver(() => place(active, false));
+    resize.observe(nav);
+    sessionStorage.setItem("sarathi-nav-current", active);
+    return () => { cancelAnimationFrame(frame); resize.disconnect(); };
+  }, [active]);
+  return <nav ref={navRef} className={expanded ? "portal-nav expanded" : "portal-nav"} aria-label="Main navigation">
+    {navigation.map(([label, href, name]) => <a key={href} href={href} data-route={name} aria-current={active === name ? "page" : undefined} onClick={() => sessionStorage.setItem("sarathi-nav-from", active)}>{label}</a>)}
+    <span ref={sliderRef} className="nav-slider" aria-hidden="true"/>
+  </nav>;
+}
+
 export function SarathiApp({ view, detail }: { view: SarathiView; detail?: string }) {
   const live = useSnapshot();
   const auth = useAuth();
@@ -50,7 +79,7 @@ export function SarathiApp({ view, detail }: { view: SarathiView; detail?: strin
   return <div className="portal">
     <header className="portal-header">
       <a className="brand" href="/" aria-label="Sarathi home"><Zap/><span><b>SARATHI</b><small>Command Center</small></span></a>
-      <nav className={menu ? "portal-nav expanded" : "portal-nav"} aria-label="Main navigation">{navigation.map(([label, href, name]) => <a key={href} href={href} aria-current={active === name ? "page" : undefined}>{label}</a>)}</nav>
+      <SlidingNav active={active} expanded={menu}/>
       <a href="/system" className="connection-status"><span>Status</span><i className={live.busy ? "pending" : connected ? "online" : "offline"}/></a>
       <a href={auth.user ? "/profile" : "/login"} className="profile-control" aria-label={auth.user ? "Open profile" : "Sign in"}>{auth.user ? <><span className="profile-avatar">{(auth.profile?.full_name || auth.user.email || "U").charAt(0).toUpperCase()}</span><span className="profile-label"><b>{auth.profile?.full_name || "Profile"}</b><small>{auth.profile?.role || "user"}</small></span></> : <><LogIn/><span>Sign in</span></>}</a>
       <button className="menu-toggle" aria-expanded={menu} aria-label="Toggle navigation" onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button>
@@ -224,7 +253,7 @@ function Ask() {
   const [query, setQuery] = useState(""); const [busy, setBusy] = useState(false); const [answer, setAnswer] = useState<Answer | null>(null);
   async function submit(text: string) { if (busy || !text.trim()) return; setQuery(text); setBusy(true); setAnswer(null); try { const response = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: text }) }); setAnswer(await response.json()); } catch { setAnswer({ message: "The assistant service is unavailable. Please try again." }); } finally { setBusy(false); } }
   const aiTone = answer?.ai?.status === "available" ? "green" : answer?.ai?.status === "error" ? "amber" : "muted";
-  return <><Heading number="06" title="Ask" subtitle="Bounded multi-agent synthesis over live, source-attributed evidence"/><div className="assistant"><div className="assistant-mark"><Zap/></div><h2>Ask SARATHI</h2><p>The Python orchestrator selects relevant specialists, verifies their evidence, and enforces one shared token budget.</p><form onSubmit={e => { e.preventDefault(); void submit(query); }}><input aria-label="Ask Sarathi" value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about the current situation…"/><button disabled={busy || !query.trim()} aria-label="Send question">{busy ? <RefreshCw className="spinning"/> : <Send/>}</button></form><div className="suggestions">{["What is the weather in Chennai?", "What rainfall is forecast?", "Show recent earthquakes", "What should I do during a flood warning?"].map(q => <button key={q} disabled={busy} onClick={() => submit(q)}>{q}</button>)}</div><div aria-live="polite">{busy && <p className="answer-loading">Routing specialists and retrieving current evidence…</p>}{answer && <article className="surface answer"><header><Zap/><b>SARATHI</b>{answer.backend && <Pill tone={answer.backend === "python" ? "green" : "amber"}>{answer.backend === "python" ? "PYTHON CORE" : "LOCAL FALLBACK"}</Pill>}{answer.ai && <Pill tone={aiTone}>{answer.ai.status === "available" ? `AI · ${answer.ai.model}` : answer.ai.status === "error" ? "AI ERROR" : "AI UNAVAILABLE"}</Pill>}<span>{time(answer.fetchedAt)}</span></header><p>{answer.answer || answer.message}</p>{answer.selectedAgents?.length ? <section className="agent-trace"><h3>Agent run</h3><div className="routing-tags">{answer.selectedAgents.map(agent => <Pill key={agent}>{agent}</Pill>)}</div></section> : null}{answer.evidence?.length ? <section className="evidence-list"><h3>Evidence used</h3>{answer.evidence.map(item => <div key={`${item.citation}-${item.source}`}><b>[{item.citation}] {safeLink(item.url || undefined) ? <a href={item.url || undefined} target="_blank" rel="noreferrer">{item.source}</a> : item.source}</b><span>{item.authority}</span><p>{item.summary}</p></div>)}</section> : null}{answer.verification && <p className="verification"><ShieldCheck/><span><b>{answer.verification.status.replaceAll("_", " ")}</b>{answer.verification.meaning}</span></p>}{answer.usage && <div className="run-metrics"><span>Calls <b>{answer.usage.llmCalls}/{answer.usage.limits.maxLlmCalls}</b></span><span>Input <b>{answer.usage.inputTokens}/{answer.usage.limits.maxInputTokens}</b></span><span>Output <b>{answer.usage.outputTokens}/{answer.usage.limits.maxOutputTokens}</b></span><span>Total <b>{answer.usage.totalTokens}/{answer.usage.limits.maxTotalTokens}</b></span><span>Runtime <b>{answer.durationMs ?? 0} ms</b></span></div>}{answer.ai?.error && <p className="ai-limitation">{answer.ai.error} Live evidence remains visible; no generated claim was substituted.</p>}{answer.backendError && <p className="ai-limitation">Python backend unavailable: {answer.backendError}</p>}</article>}</div></div></>;
+  return <><Heading number="06" title="Ask" subtitle="Bounded multi-agent synthesis over live, source-attributed evidence"/><div className="assistant"><div className="assistant-mark"><Zap/></div><h2>Ask SARATHI</h2><p>The Python orchestrator selects relevant specialists, verifies their evidence, and enforces one shared token budget.</p><form onSubmit={e => { e.preventDefault(); void submit(query); }}><input aria-label="Ask Sarathi" value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about the current situation…"/><button disabled={busy || !query.trim()} aria-label="Send question">{busy ? <RefreshCw className="spinning"/> : <Send/>}</button></form><div className="suggestions">{["What is the weather in Chennai?", "What rainfall is forecast?", "Show recent earthquakes", "What should I do during a flood warning?"].map(q => <button key={q} disabled={busy} onClick={() => submit(q)}>{q}</button>)}</div><div aria-live="polite">{busy && <p className="answer-loading">Routing specialists and retrieving current evidence…</p>}{answer && <article className="surface answer"><header><Zap/><b>SARATHI</b>{answer.backend && <Pill tone={answer.backend === "python" ? "green" : "amber"}>{answer.backend === "python" ? "PYTHON CORE" : "LOCAL FALLBACK"}</Pill>}{answer.ai && <Pill tone={aiTone}>{answer.ai.status === "available" ? `AI · ${answer.ai.model}` : answer.ai.status === "error" ? "AI ERROR" : "AI UNAVAILABLE"}</Pill>}<span>{time(answer.fetchedAt)}</span></header><p>{answer.answer || answer.message}</p>{answer.selectedAgents?.length ? <section className="agent-trace"><h3>Agent run</h3><div className="routing-tags">{answer.selectedAgents.map(agent => <Pill key={agent}>{agent}</Pill>)}</div></section> : null}{answer.evidence?.length ? <section className="evidence-list"><h3>Sources consulted</h3>{answer.evidence.map(item => <div key={`${item.citation}-${item.source}`}><b>{safeLink(item.url || undefined) ? <a href={item.url || undefined} target="_blank" rel="noreferrer">{item.source}</a> : item.source}</b><span>{item.authority}</span><p>{item.summary}</p></div>)}</section> : null}{answer.verification && <p className="verification"><ShieldCheck/><span><b>Sources checked</b>{answer.verification.meaning}</span></p>}{answer.usage && <div className="run-metrics"><span>Calls <b>{answer.usage.llmCalls}/{answer.usage.limits.maxLlmCalls}</b></span><span>Input <b>{answer.usage.inputTokens}/{answer.usage.limits.maxInputTokens}</b></span><span>Output <b>{answer.usage.outputTokens}/{answer.usage.limits.maxOutputTokens}</b></span><span>Total <b>{answer.usage.totalTokens}/{answer.usage.limits.maxTotalTokens}</b></span><span>Runtime <b>{answer.durationMs ?? 0} ms</b></span></div>}{answer.ai?.error && <p className="ai-limitation">{answer.ai.error} Live evidence remains visible; no generated claim was substituted.</p>}{answer.backendError && <p className="ai-limitation">Python backend unavailable: {answer.backendError}</p>}</article>}</div></div></>;
 }
 
 function About() {

@@ -2,14 +2,23 @@
 
 Disaster intelligence workspace with an interactive OpenStreetMap basemap, live public feeds, source inspection, situation reports and a bounded multi-agent AI workflow.
 
+## Repository structure
+
+- `frontend/` — React, TypeScript, Next.js routes, web APIs, UI components, assets, frontend tests and Sites build configuration.
+- `python_backend/` — primary dependency-free multi-agent CLI and local HTTP service.
+- `backend/` and `cli/` — Node.js orchestration and command-line adapter.
+- `supabase/` — database, authentication and observability migrations.
+- `tests/` — backend contract and Python test suites.
+
 ## Run
 
 ```sh
+cd frontend
 npm install
 npm run dev
 ```
 
-The development server uses http://127.0.0.1:5173. Build with `npm run build`. Run the production Worker locally with `npm run start`.
+The React, TypeScript and Next.js application is contained in `frontend`. Its development server uses http://127.0.0.1:5173. From that folder, build with `npm run build` and run the production Worker locally with `npm run start`.
 
 On Windows, double-click `run.bat` with no arguments to start the Python API on `127.0.0.1:8765`, start the React/TypeScript command center through the standard Next.js local runtime on `127.0.0.1:5173`, and open it in the default browser. Closing the frontend process also stops the background Python service. Passing a prompt to `run.bat` preserves CLI mode.
 
@@ -19,9 +28,9 @@ The backend can run independently of the web interface:
 
 ```powershell
 Copy-Item .env.example .env
-npm run sarathi -- --query "Create a disaster intelligence briefing for Chennai"
-npm run sarathi -- --query "Summarize weather and disaster news" --json
-npm run sarathi -- --query "Extract current evidence" --no-ai --save outputs/run.json
+.\run.bat "Create a disaster intelligence briefing for Chennai"
+.\run.bat --json "Summarize weather and disaster news"
+.\run.bat --no-ai --save outputs/run.json "Extract current evidence"
 ```
 
 Each run retrieves real data in parallel from Open-Meteo, NASA POWER, Google News RSS, USGS and NASA EONET. Weather, climate-context, news-management, seismic and natural-event agents analyze their own evidence, then report to Sarathi Central for synthesis. Without `OPENAI_API_KEY`, extraction still runs and the CLI produces an evidence-only report with an explicit AI-unavailable status.
@@ -127,10 +136,10 @@ The report is a current source snapshot, not a persisted incident history. The w
 ## Checks
 
 ```sh
+cd frontend
 npx tsc --noEmit
-node --test tests/live-data.test.mjs tests/sarathi-ai.test.mjs
-npm run test:backend
-npx eslint components/sarathi-portal.tsx components/operational-map.tsx app/api/ask/route.ts app/api/system/status/route.ts lib/sarathi-ai.ts
+node --test tests/live-data.test.mjs tests/sarathi-ai.test.mjs ../tests/backend-cli.test.mjs
+npm run lint
 npm run build
 ```
 

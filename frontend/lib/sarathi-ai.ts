@@ -106,9 +106,25 @@ function knowledgeAgent(query: string): Evidence[] {
 
 function fallbackAnswer(query: string, evidence: Evidence[], missing: string[]) {
   if (!evidence.length) return "No connected source returned evidence for this request. Sarathi will not invent an answer.";
-  const lines = evidence.slice(0, 6).map(item => `• ${item.summary}${item.data ? ` ${JSON.stringify(item.data)}` : ""}`);
-  const limitation = missing.length ? `\n\nUnavailable: ${missing.join(", ")}.` : "";
-  return `Current source evidence for “${query}”:\n${lines.join("\n")}${limitation}\n\nAI synthesis is unavailable until the model credential is connected.`;
+  const weather = evidence.find(item => item.agent === "Weather")?.data;
+  if (weather) {
+    const temperature = weather.temperatureC == null ? "an unavailable temperature" : `${weather.temperatureC}°C`;
+    const rain = weather.currentPrecipitationMm == null ? "current rainfall is unavailable" : `current precipitation is ${weather.currentPrecipitationMm} mm`;
+    const wind = weather.windSpeedKmh == null ? "wind speed is unavailable" : `wind is ${weather.windSpeedKmh} km/h`;
+    return `According to the latest Open-Meteo reading, the temperature is ${temperature}, ${rain}, and ${wind}. This is modelled weather data rather than an official warning.`;
+  }
+  const findings = evidence.slice(0, 4).map(item => `According to ${item.source}, ${item.summary.replace(/[.]+$/, "")}.`);
+  const limitation = missing.length ? " Some supporting services are currently unavailable, so check the relevant local authority before making an urgent safety decision." : "";
+  return `${findings.join(" ")}${limitation}`;
+}
+
+function humanizeAnswer(value: string) {
+  return value
+    .replace(/\s*\[[^\]\r\n]{1,120}\]\s*/g, " ")
+    .replace(/\b(?:EVIDENCE_JSON|SOURCE_VALIDATED|UNAVAILABLE)\b:?/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ *\n */g, "\n")
+    .trim();
 }
 
 function extractOutputText(payload: unknown) {
@@ -129,7 +145,7 @@ async function synthesize(query: string, evidence: Evidence[], verification: obj
     "Use only the supplied evidence. Never invent measurements, incidents, alerts, shelters, routes, risk scores or confidence values.",
     "Clearly distinguish current API data from official guidance. State missing capabilities explicitly.",
     "For urgent safety decisions, direct the user to the relevant official authority. Keep the answer concise.",
-    "Cite evidence inline as [1], [2], matching the evidence array order. Do not expose chain-of-thought.",
+    "Write like a calm, helpful human. Attribute facts naturally with phrases such as 'According to Open-Meteo'. Do not use bracketed citations, JSON, agent labels, status codes, or system-style headings. Do not expose chain-of-thought.",
   ].join(" ");
   const input = `${instructions}\n\nEVIDENCE_JSON\n${evidenceJson}`;
   budget.reserveInput(input);
@@ -147,7 +163,7 @@ async function synthesize(query: string, evidence: Evidence[], verification: obj
     budget.record(payload.usage?.input_tokens || 0, payload.usage?.output_tokens || 0);
     const answer = extractOutputText(payload);
     if (!answer) throw new Error("The model returned no text output.");
-    return { status: "available" as const, model, answer, error: null };
+    return { status: "available" as const, model, answer: humanizeAnswer(answer), error: null };
   } catch (error) {
     return { status: "error" as const, model, answer: null, error: error instanceof Error ? error.message : "AI synthesis failed." };
   } finally { clearTimeout(timer); }
@@ -183,7 +199,7 @@ export async function runSarathi(query: string) {
     "verified shelter and route data",
     "population and infrastructure exposure data",
   ];
-  const answer = modelResult.answer || fallbackAnswer(cleanQuery, evidence, missing);
+  const answer = humanizeAnswer(modelResult.answer || fallbackAnswer(cleanQuery, evidence, missing));
   return {
     runId: crypto.randomUUID(),
     answer,

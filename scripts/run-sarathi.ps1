@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$frontend = Join-Path $root "frontend"
 Set-Location -LiteralPath $root
 
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
@@ -18,9 +19,13 @@ if ($python) {
     $pythonArgs = @("python_backend\server.py")
 }
 
-if (-not (Test-Path -LiteralPath "node_modules")) {
+if ((Test-Path -LiteralPath (Join-Path $root ".env")) -and -not (Test-Path -LiteralPath (Join-Path $frontend ".env"))) {
+    Copy-Item -LiteralPath (Join-Path $root ".env") -Destination (Join-Path $frontend ".env")
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules"))) {
     Write-Host "Installing frontend dependencies..." -ForegroundColor Cyan
-    & npm.cmd install
+    & npm.cmd --prefix $frontend install
     if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
 }
 
@@ -47,8 +52,13 @@ try {
     }
     Write-Host "Starting the React command center at http://127.0.0.1:5173" -ForegroundColor Green
     Write-Host "Saarthi is running. Press Ctrl+C to stop both services." -ForegroundColor Cyan
-    & $nodeFile "node_modules\next\dist\bin\next" dev -p 5173 -H 127.0.0.1
-    exit $LASTEXITCODE
+    Push-Location -LiteralPath $frontend
+    try {
+        & $nodeFile "node_modules\next\dist\bin\next" dev -p 5173 -H 127.0.0.1
+        exit $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
 } finally {
     if ($browserJob) { Stop-Job -Job $browserJob -ErrorAction SilentlyContinue; Remove-Job -Job $browserJob -Force -ErrorAction SilentlyContinue }
     if ($backend -and -not $backend.HasExited) { Stop-Process -Id $backend.Id -Force }

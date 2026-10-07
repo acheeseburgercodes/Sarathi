@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules/
 __pycache__/
 *.py[cod]
 /.pnp
@@ -17,7 +18,9 @@ __pycache__/
 
 # next.js
 /.next/
+**/.next/
 /.vinext/
+**/.vinext/
 /out/
 
 # misc
@@ -40,9 +43,12 @@ yarn-error.log*
 # typescript
 next-env.d.ts
 /dist/
+**/dist/
 /.wrangler/
+**/.wrangler/
 # Checkout-local execution profile and tool state; never publish them.
 /.sites-runtime/
+**/.sites-runtime/
 /.agents/
 /.codex/
 /outputs/
