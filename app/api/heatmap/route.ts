@@ -9,21 +9,26 @@ type OpenMeteoPoint = {
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 
 export async function GET(request: NextRequest) {
-  const latitude = Number(request.nextUrl.searchParams.get("lat"));
-  const longitude = Number(request.nextUrl.searchParams.get("lon"));
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 85 || Math.abs(longitude) > 180) {
+  const latitudeParam = request.nextUrl.searchParams.get("lat");
+  const longitudeParam = request.nextUrl.searchParams.get("lon");
+  const latitude = Number(latitudeParam);
+  const longitude = Number(longitudeParam);
+  if (latitudeParam == null || longitudeParam == null || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 85 || Math.abs(longitude) > 180) {
     return NextResponse.json({ status: "unavailable", message: "Valid device coordinates are required." }, { status: 400 });
   }
 
-  const size = 7;
-  const latitudeStep = 0.12;
+  // A 5x5 multi-location request stays below edge-runtime timeouts while still
+  // covering roughly 50 km around the device at this resolution.
+  const size = 5;
+  const centerIndex = Math.floor(size / 2);
+  const latitudeStep = 0.1;
   const longitudeStep = Math.min(0.45, latitudeStep / Math.max(0.3, Math.cos(latitude * Math.PI / 180)));
   const requested: { latitude: number; longitude: number }[] = [];
   for (let row = 0; row < size; row++) {
     for (let column = 0; column < size; column++) {
       requested.push({
-        latitude: Math.max(-85, Math.min(85, latitude + (row - 3) * latitudeStep)),
-        longitude: ((((longitude + (column - 3) * longitudeStep) + 180) % 360) + 360) % 360 - 180,
+        latitude: Math.max(-85, Math.min(85, latitude + (row - centerIndex) * latitudeStep)),
+        longitude: ((((longitude + (column - centerIndex) * longitudeStep) + 180) % 360) + 360) % 360 - 180,
       });
     }
   }
@@ -35,7 +40,7 @@ export async function GET(request: NextRequest) {
     forecast_days: "1",
   });
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
+  const timer = setTimeout(() => controller.abort(), 20_000);
   try {
     const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`Open-Meteo returned HTTP ${response.status}.`);

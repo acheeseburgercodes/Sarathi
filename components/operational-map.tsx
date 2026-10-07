@@ -110,7 +110,7 @@ export function OperationalMap({ points = [], selected, global = false, followDe
           if (value == null || !Number.isFinite(value)) continue;
           const rectangle = L.rectangle(
             [[cell.latitude - halfLatitude, cell.longitude - halfLongitude], [cell.latitude + halfLatitude, cell.longitude + halfLongitude]],
-            { stroke: false, fillColor: heatColor(value, minimum, maximum), fillOpacity: heatMetric === "precipitation" && value === 0 ? .12 : .6, interactive: true },
+            { color: "#ffffff18", weight: 1, fillColor: heatColor(value, minimum, maximum), fillOpacity: heatMetric === "precipitation" && value === 0 ? .32 : .68, interactive: true },
           ).addTo(markers.current);
           const label = document.createElement("span");
           label.textContent = `${heatLabels[heatMetric]}: ${value} ${heatGrid.units[heatMetric]} · Open-Meteo`;
@@ -148,7 +148,10 @@ export function OperationalMap({ points = [], selected, global = false, followDe
         if (!response.ok) throw new Error("Weather grid unavailable");
         return response.json() as Promise<HeatGrid>;
       })
-      .then(data => { setHeatGrid(data); setHeatState("available"); })
+      .then(data => {
+        if (data.status !== "available" || !Array.isArray(data.cells) || !data.cells.length) throw new Error("Weather grid unavailable");
+        setHeatGrid(data); setHeatState("available");
+      })
       .catch(error => { if (error?.name !== "AbortError") { setHeatGrid(null); setHeatState("unavailable"); } });
     return () => controller.abort();
   }, [heatMetric, location]);
