@@ -13,15 +13,18 @@ export default function AuthCallback() {
   useEffect(() => {
     const client = getSupabaseBrowserClient();
     if (!client) return;
-    const code = new URLSearchParams(window.location.search).get("code");
+    const parameters = new URLSearchParams(window.location.search);
+    const code = parameters.get("code");
+    const requestedDestination = parameters.get("next");
+    const destination = requestedDestination === "/admin" ? "/admin" : "/profile";
     const complete = async () => {
       if (code) {
         const { error } = await client.auth.exchangeCodeForSession(code);
         if (error) { setMessage(`Sign-in failed: ${error.message}`); return; }
       }
       const { data, error } = await client.auth.getUser();
-      if (error || !data.user) { setMessage(error?.message || "Google did not return an authenticated account."); return; }
-      router.replace("/profile");
+      if (error || !data.user) { setMessage(error?.message || "The confirmation link did not return an authenticated account."); return; }
+      router.replace(destination);
     };
     void complete();
   }, [router]);

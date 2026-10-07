@@ -69,26 +69,29 @@ Run `supabase/migrations/001_saarthi_storage.sql` in the Supabase SQL Editor, th
 
 Each refresh updates the Realtime-enabled source snapshot rows immediately. Upstream data freshness still depends on the source APIs and the configured polling interval. See `supabase/README.md` for keys, security rules and the future frontend subscription.
 
-### Google sign-in and profiles
+### Email/password accounts, CAPTCHA and admin observability
 
-Run `supabase/migrations/002_auth_profiles.sql` after the storage migration. It creates a `profiles` table, copies Google email/name/avatar metadata when a user signs in, enables Row Level Security, and keeps role assignment outside the browser.
+Run `supabase/migrations/002_auth_profiles.sql`, then `supabase/migrations/003_admin_observability.sql`, after the storage migration. The profile migration copies the signup name and verified email into a `profiles` row. The observability migration restricts complete run payloads and agent outputs to accounts with the server-controlled `admin` role.
 
-In **Supabase → Authentication → Providers → Google**, enable Google and enter the OAuth client ID and client secret from Google Cloud. In Google Cloud, create a Web application OAuth client and use the callback URL shown by Supabase, normally `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`, as an authorized redirect URI. Add `http://127.0.0.1:5173` as an authorized JavaScript origin. In **Supabase → Authentication → URL Configuration**, add `http://127.0.0.1:5173/auth/callback` to the redirect allow list.
+Enable email/password accounts in **Supabase → Authentication → Providers → Email**. In **Authentication → URL Configuration**, allow `http://127.0.0.1:5173/auth/callback` and the production `/auth/callback` URL.
 
-The React client needs only these public values in `.env`:
+Create a Cloudflare Turnstile widget for the local and production hostnames. Put its public site key in `.env`, then put the Turnstile **secret key only** in **Supabase → Authentication → Bot and Abuse Protection** and enable CAPTCHA. The React client needs only these public values:
 
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=your_public_turnstile_site_key
 ```
 
-Keep the Google client secret and Supabase secret/service-role keys out of all `NEXT_PUBLIC_` variables. New accounts receive the `user` role. Promote a trusted administrator from the Supabase SQL Editor:
+Keep the Turnstile secret and Supabase secret/service-role keys out of all `NEXT_PUBLIC_` variables. New accounts receive the `user` role. Promote a trusted administrator from the Supabase SQL Editor:
 
 ```sql
 update public.profiles
 set role = 'admin', updated_at = now()
 where email = 'trusted-admin@example.com';
 ```
+
+The protected `/admin` page shows recorded routes, source status, specialist stages, central synthesis status, model names, latency and token use. It displays stored outputs and errors, but never private model reasoning.
 
 The Intelligence map asks the browser for device location and centers there when permission is granted. Denial or unavailable geolocation leaves the global hazard map usable and displays a retry control.
 

@@ -1,15 +1,15 @@
 "use client";
 /* Full document links avoid the deployed vinext client-router failure. */
 /* eslint-disable @next/next/no-html-link-for-pages */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDown, ArrowUpRight, ChevronRight, CloudRain, Download, FileText, Globe2, KeyRound, Layers, LogIn, LogOut, MapPin, Menu, Network, RefreshCw, Search, Send, ShieldCheck, UserRound, Waves, Wind, X, Zap } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, ArrowDown, ArrowUpRight, Braces, ChevronRight, CloudRain, Cpu, Database, Download, FileText, GitBranch, Globe2, KeyRound, Layers, LogIn, LogOut, MapPin, Menu, Network, RefreshCw, Search, Send, ShieldCheck, UserRound, Waves, Wind, X, Zap } from "lucide-react";
 import { OperationalMap, type HeatMetric, type MapPoint } from "./operational-map";
 import type { getLiveDashboard } from "@/lib/live-data";
 import { useAuth } from "./auth-provider";
 
 type Snapshot = Awaited<ReturnType<typeof getLiveDashboard>>;
 type EventItem = MapPoint & { date?: string; time?: string; link?: string; magnitude?: number };
-export type SarathiView = "home"|"about"|"command"|"intelligence"|"warnings"|"agents"|"agent"|"sitrep"|"sitrep-detail"|"alerts"|"ask"|"sources"|"system"|"event"|"profile"|"admin";
+export type SarathiView = "home"|"about"|"command"|"intelligence"|"warnings"|"agents"|"agent"|"sitrep"|"sitrep-detail"|"alerts"|"ask"|"sources"|"system"|"event"|"login"|"signup"|"profile"|"admin";
 const navigation = [["Home", "/", "home"], ["Command", "/command", "command"], ["Intelligence", "/intelligence", "intelligence"], ["Warnings", "/warnings", "warnings"], ["Agents", "/agents", "agents"], ["SITREP", "/sitrep", "sitrep"], ["Ask", "/ask", "ask"], ["About", "/about", "about"]];
 const fmt = (value: number | null | undefined, unit = "") => value == null ? "Unavailable" : `${value}${unit}`;
 const time = (value?: string) => value ? new Date(value).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—";
@@ -50,12 +50,14 @@ export function SarathiApp({ view, detail }: { view: SarathiView; detail?: strin
       <a className="brand" href="/" aria-label="Sarathi home"><Zap/><span><b>SARATHI</b><small>Command Center</small></span></a>
       <nav className={menu ? "portal-nav expanded" : "portal-nav"} aria-label="Main navigation">{navigation.map(([label, href, name]) => <a key={href} href={href} aria-current={active === name ? "page" : undefined}>{label}</a>)}</nav>
       <a href="/system" className="connection-status"><span>Status</span><i className={live.busy ? "pending" : connected ? "online" : "offline"}/></a>
-      <a href="/profile" className="profile-control" aria-label={auth.user ? "Open profile" : "Sign in"}>{auth.user ? <><span className="profile-avatar">{(auth.profile?.full_name || auth.user.email || "U").charAt(0).toUpperCase()}</span><span className="profile-label"><b>{auth.profile?.full_name || "Profile"}</b><small>{auth.profile?.role || "user"}</small></span></> : <><LogIn/><span>Sign in</span></>}</a>
+      <a href={auth.user ? "/profile" : "/login"} className="profile-control" aria-label={auth.user ? "Open profile" : "Sign in"}>{auth.user ? <><span className="profile-avatar">{(auth.profile?.full_name || auth.user.email || "U").charAt(0).toUpperCase()}</span><span className="profile-label"><b>{auth.profile?.full_name || "Profile"}</b><small>{auth.profile?.role || "user"}</small></span></> : <><LogIn/><span>Sign in</span></>}</a>
       <button className="menu-toggle" aria-expanded={menu} aria-label="Toggle navigation" onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button>
     </header>
     <div className={view === "home" ? "home-shell" : "workspace"}>
       {view === "home" && <Home live={live}/>}
       {view === "about" && <About/>}
+      {view === "login" && <Login/>}
+      {view === "signup" && <AccountAccess mode="signup"/>}
       {view === "command" && <Command live={live}/>}
       {(view === "intelligence" || view === "event") && <Intelligence live={live} detail={detail}/>}
       {(view === "warnings" || view === "alerts") && <Warnings live={live} alerts={view === "alerts"}/>}
@@ -184,32 +186,133 @@ function About() {
   </div>;
 }
 
-function GoogleSignIn({ compact = false }: { compact?: boolean }) {
+type TurnstileApi = { render: (element: HTMLElement, options: Record<string, unknown>) => string; remove: (id: string) => void };
+
+function Captcha({ onToken }: { onToken: (token: string) => void }) {
+  const host = useRef<HTMLDivElement>(null);
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
+  useEffect(() => {
+    if (!siteKey || !host.current) return;
+    let widget = "";
+    let cancelled = false;
+    const render = () => {
+      const api = (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+      if (!api || !host.current || cancelled || host.current.childElementCount) return;
+      widget = api.render(host.current, {
+        sitekey: siteKey, theme: "dark", size: "flexible",
+        callback: (token: string) => onToken(token),
+        "expired-callback": () => onToken(""),
+        "error-callback": () => onToken(""),
+      });
+    };
+    const existing = document.querySelector<HTMLScriptElement>('script[data-sarathi-turnstile]');
+    if (existing) { if ((window as unknown as { turnstile?: TurnstileApi }).turnstile) render(); else existing.addEventListener("load", render, { once: true }); }
+    else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true; script.defer = true; script.dataset.sarathiTurnstile = "true";
+      script.addEventListener("load", render, { once: true }); document.head.appendChild(script);
+    }
+    return () => { cancelled = true; const api = (window as unknown as { turnstile?: TurnstileApi }).turnstile; if (api && widget) api.remove(widget); };
+  }, [siteKey, onToken]);
+  if (!siteKey) return <div className="captcha-missing"><KeyRound/><span>CAPTCHA is not configured. Add the public Turnstile site key to enable account access.</span></div>;
+  return <div className="captcha-box"><div ref={host}/></div>;
+}
+
+function Login() { return <AccountAccess mode="login"/>; }
+
+function AccountAccess({ mode }: { mode: "login" | "signup" }) {
   const auth = useAuth();
-  return <button className={`button google-signin ${compact ? "compact" : ""}`} disabled={!auth.configured || auth.loading} onClick={() => void auth.signInWithGoogle()}><b>G</b>{auth.loading ? "Checking account…" : "Continue with Google"}</button>;
+  const [access, setAccess] = useState<"user" | "admin">("user");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const captchaConfigured = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
+  const onCaptcha = useCallback((token: string) => setCaptchaToken(token), []);
+  const displayName = auth.profile?.full_name || auth.user?.user_metadata?.full_name || auth.user?.email;
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setMessage("");
+    if (!captchaToken) { setMessage("Complete the CAPTCHA before continuing."); return; }
+    if (mode === "signup" && password !== confirmation) { setMessage("Passwords do not match."); return; }
+    if (mode === "signup" && password.length < 8) { setMessage("Use at least 8 characters for the password."); return; }
+    setSubmitting(true);
+    const result = mode === "login"
+      ? await auth.signInWithPassword(email, password, captchaToken, access === "admin" ? "/admin" : "/profile")
+      : await auth.signUpWithPassword(name, email, password, captchaToken);
+    setSubmitting(false);
+    if (!result.ok) { setMessage(result.error || "Account request failed."); setCaptchaToken(""); setCaptchaAttempt(value => value + 1); }
+    else if (mode === "signup" && "confirmationRequired" in result && result.confirmationRequired) setMessage("Account created. Check your email to confirm it, then sign in.");
+  };
+  return <div className="login-page"><section className="login-intro"><a href="/" className="login-brand"><Zap/><b>SARATHI</b></a><span className="eyebrow">SECURE OPERATIONS ACCESS</span><h1>{mode === "login" ? <>Return to the<br/><em>response workspace.</em></> : <>Create your<br/><em>Sarathi account.</em></>}</h1><p>Email/password authentication is handled by Supabase. CAPTCHA blocks automated abuse, while server-controlled roles protect model-call and workflow records.</p><div className="login-trust"><span><ShieldCheck/> CAPTCHA protected</span><span><Database/> Supabase identity</span><span><KeyRound/> Server-controlled roles</span></div></section><section className="surface login-panel"><header><span>{mode === "login" ? "SIGN IN" : "CREATE ACCOUNT"}</span><Pill tone="green">SECURE</Pill></header>{auth.loading ? <div className="login-loading"><div className="auth-spinner"/><p>Checking your account…</p></div> : auth.user ? <div className="login-existing"><div className="large-avatar">{(displayName || "U").charAt(0).toUpperCase()}</div><h2>Welcome{displayName ? `, ${displayName}` : ""}</h2><p>{auth.user.email}</p><Pill tone={auth.profile?.role === "admin" ? "amber" : "blue"}>{(auth.profile?.role || "user").toUpperCase()}</Pill><a className="button primary" href={auth.profile?.role === "admin" ? "/admin" : "/profile"}>Continue to workspace <ChevronRight/></a><button className="button ghost" onClick={() => void auth.signOut()}><LogOut/> Use another account</button></div> : <><div className="auth-switch"><a className={mode === "login" ? "active" : ""} href="/login">Sign in</a><a className={mode === "signup" ? "active" : ""} href="/signup">Sign up</a></div><h2>{mode === "login" ? "Access your workspace" : "Create a user account"}</h2><p className="login-copy">{mode === "login" ? "Choose where you are heading. Admin access is allowed only for accounts assigned the admin role in Supabase." : "New accounts start with the user role. An existing administrator can promote a trusted account outside the browser."}</p>{mode === "login" && <div className="access-picker"><button type="button" aria-pressed={access === "user"} onClick={() => setAccess("user")}><UserRound/><span><b>User</b><small>Profile and public-safety workspace</small></span></button><button type="button" aria-pressed={access === "admin"} onClick={() => setAccess("admin")}><ShieldCheck/><span><b>Administrator</b><small>Model calls and full workflows</small></span></button></div>}<form className="auth-form" onSubmit={submit}>{mode === "signup" && <label>Full name<input name="name" autoComplete="name" required maxLength={100} value={name} onChange={event => setName(event.target.value)} placeholder="Your name"/></label>}<label>Email address<input type="email" name="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com"/></label><label>Password<input type="password" name="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 8 characters"/></label>{mode === "signup" && <label>Confirm password<input type="password" name="confirmation" autoComplete="new-password" required minLength={8} value={confirmation} onChange={event => setConfirmation(event.target.value)} placeholder="Repeat your password"/></label>}<Captcha key={captchaAttempt} onToken={onCaptcha}/><button className="button primary auth-submit" disabled={submitting || !auth.configured || !captchaConfigured || !captchaToken}>{submitting ? "Verifying…" : mode === "login" ? "Sign in securely" : "Create account"}<ChevronRight/></button></form>{!auth.configured && <div className="account-warning"><KeyRound/><span>Account access needs the public Supabase URL and publishable key.</span></div>}{(message || auth.error) && <p className={message.startsWith("Account created") ? "form-success" : "form-error"}>{message || auth.error}</p>}</>}</section></div>;
 }
 
 function Profile() {
   const auth = useAuth();
   if (auth.loading) return <div className="account-state"><div className="auth-spinner"/><p>Loading your Sarathi profile…</p></div>;
-  if (!auth.user) return <div className="account-shell signed-out"><div className="account-mark"><UserRound/></div><span className="eyebrow">SARATHI ACCOUNT</span><h1>Your operations profile</h1><p>Sign in with Google to create a secure user profile. Sarathi stores your account ID, email, display name, avatar and assigned role in Supabase.</p><GoogleSignIn/>{!auth.configured && <div className="account-warning"><KeyRound/><span>Google sign-in needs the public Supabase URL and publishable key. Follow the setup in the project README.</span></div>}{auth.error && <p className="form-error">{auth.error}</p>}</div>;
+  if (!auth.user) return <div className="account-shell signed-out"><div className="account-mark"><UserRound/></div><span className="eyebrow">SARATHI ACCOUNT</span><h1>Your operations profile</h1><p>Use the secure login page to create an email/password Sarathi profile.</p><a className="button primary" href="/login">Open login <LogIn/></a></div>;
   const displayName = auth.profile?.full_name || auth.user.user_metadata?.full_name || auth.user.email || "Sarathi user";
-  return <><Heading number="09" title="Profile" subtitle="Identity and role for this Sarathi workspace"/><div className="profile-layout"><section className="surface profile-card"><div className="large-avatar">{displayName.charAt(0).toUpperCase()}</div><h2>{displayName}</h2><p>{auth.user.email}</p><Pill tone={auth.profile?.role === "admin" ? "amber" : "blue"}>{(auth.profile?.role || "user").toUpperCase()}</Pill><dl><dt>Authentication</dt><dd>Google via Supabase</dd><dt>Profile storage</dt><dd>{auth.profile ? "Connected" : "Migration required"}</dd><dt>Account ID</dt><dd>{auth.user.id.slice(0, 8)}…</dd></dl>{auth.profile?.role === "admin" && <a href="/admin" className="button subtle"><ShieldCheck/> Open admin profile</a>}<button className="button ghost" onClick={() => void auth.signOut()}><LogOut/> Sign out</button></section><ProfileEditor key={`${auth.user.id}-${auth.profile?.full_name || ""}`} auth={auth}/></div></>;
+  return <><Heading number="09" title="Profile" subtitle="Identity and role for this Sarathi workspace"/><div className="profile-layout"><section className="surface profile-card"><div className="large-avatar">{displayName.charAt(0).toUpperCase()}</div><h2>{displayName}</h2><p>{auth.user.email}</p><Pill tone={auth.profile?.role === "admin" ? "amber" : "blue"}>{(auth.profile?.role || "user").toUpperCase()}</Pill><dl><dt>Authentication</dt><dd>Email/password via Supabase</dd><dt>Profile storage</dt><dd>{auth.profile ? "Connected" : "Migration required"}</dd><dt>Account ID</dt><dd>{auth.user.id.slice(0, 8)}…</dd></dl>{auth.profile?.role === "admin" && <a href="/admin" className="button subtle"><ShieldCheck/> Open admin profile</a>}<button className="button ghost" onClick={() => void auth.signOut()}><LogOut/> Sign out</button></section><ProfileEditor key={`${auth.user.id}-${auth.profile?.full_name || ""}`} auth={auth}/></div></>;
 }
 
 function ProfileEditor({ auth }: { auth: ReturnType<typeof useAuth> }) {
   const [name, setName] = useState(auth.profile?.full_name || "");
   const [saved, setSaved] = useState(false);
-  return <section className="surface profile-editor"><span className="eyebrow">PERSONAL DETAILS</span><h2>Profile information</h2><p>Your email comes from Google. You can change the display name shown inside Sarathi.</p><form onSubmit={async e => { e.preventDefault(); setSaved(await auth.updateName(name)); }}><label>Display name<input value={name} maxLength={100} onChange={e => { setName(e.target.value); setSaved(false); }}/></label><label>Email<input value={auth.user?.email || ""} disabled/></label><button className="button primary" disabled={!auth.profile || !name.trim()}>Save profile</button>{saved && <span className="save-success">Profile saved.</span>}</form>{auth.error && <p className="form-error">{auth.error}</p>}<p className="profile-security"><ShieldCheck/> Roles are controlled in Supabase. A user cannot promote their own account.</p></section>;
+  return <section className="surface profile-editor"><span className="eyebrow">PERSONAL DETAILS</span><h2>Profile information</h2><p>Your verified email identifies the account. You can change the display name shown inside Sarathi.</p><form onSubmit={async e => { e.preventDefault(); setSaved(await auth.updateName(name)); }}><label>Display name<input value={name} maxLength={100} onChange={e => { setName(e.target.value); setSaved(false); }}/></label><label>Email<input value={auth.user?.email || ""} disabled/></label><button className="button primary" disabled={!auth.profile || !name.trim()}>Save profile</button>{saved && <span className="save-success">Profile saved.</span>}</form>{auth.error && <p className="form-error">{auth.error}</p>}<p className="profile-security"><ShieldCheck/> Roles are controlled in Supabase. A user cannot promote their own account.</p></section>;
 }
+
+type RunMetrics = { latency_ms?: number; input_tokens?: number; output_tokens?: number; total_tokens?: number; cached_input_tokens?: number | null; reasoning_tokens?: number | null; input_count_exact?: boolean };
+type RunAgent = { id?: string; name?: string; status?: string; ai_status?: string; selected_for_ai?: boolean; source?: string; source_status?: string; model?: string | null; metrics?: RunMetrics | null; report?: string; error?: string | null };
+type RunPayload = { run_id?: string; generated_at?: string; duration_ms?: number; profile?: string; connectivity?: string; context?: { query?: string; location?: string }; ai?: { requested?: boolean; available?: boolean; default_model?: string }; source_health?: Record<string, { status?: string; error?: string | null }>; agents?: RunAgent[]; central?: RunAgent; token_usage?: { model_calls?: number; input_tokens?: number; output_tokens?: number; total_tokens?: number; limits?: Record<string, number>; by_agent?: Array<Record<string, unknown>> }; supabase?: { status?: string; synced?: boolean; pending_runs?: number; error?: string | null } };
+type StoredRun = { run_id: string; generated_at: string; profile?: string; connectivity?: string; location?: string; query?: string; ai_status?: string; payload?: RunPayload };
 
 function Admin({ live }: { live: Live }) {
   const auth = useAuth();
   if (auth.loading) return <div className="account-state"><div className="auth-spinner"/><p>Verifying admin role…</p></div>;
-  if (!auth.user) return <div className="account-shell signed-out"><div className="account-mark"><ShieldCheck/></div><span className="eyebrow">ADMIN PROFILE</span><h1>Administrator access</h1><p>Sign in with the Google account that has been assigned the admin role in Supabase.</p><GoogleSignIn compact/>{auth.error && <p className="form-error">{auth.error}</p>}</div>;
+  if (!auth.user) return <div className="account-shell signed-out"><div className="account-mark"><ShieldCheck/></div><span className="eyebrow">ADMIN PROFILE</span><h1>Administrator access</h1><p>Sign in with an email/password account that has been assigned the admin role in Supabase.</p><a className="button primary" href="/login">Open admin login <LogIn/></a></div>;
   if (auth.profile?.role !== "admin") return <div className="account-shell denied"><div className="account-mark"><KeyRound/></div><span className="eyebrow">ACCESS CONTROL</span><h1>Admin role required</h1><p>{auth.user.email} is signed in as a user. An existing administrator must assign the admin role from a trusted Supabase service context.</p><a className="button subtle" href="/profile">Return to profile</a></div>;
+  return <AdminDashboard live={live}/>;
+}
+
+function AdminDashboard({ live }: { live: Live }) {
+  const auth = useAuth();
+  const [runs, setRuns] = useState<StoredRun[]>([]);
+  const [selected, setSelected] = useState(0);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setBusy(true); setError("");
+    const token = await auth.getAccessToken();
+    if (!token) { setError("The admin session is unavailable. Sign in again."); setBusy(false); return; }
+    try {
+      const response = await fetch("/api/admin/runs?limit=25", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      const data = await response.json() as { runs?: StoredRun[]; message?: string };
+      if (!response.ok) throw new Error(data.message || "Recorded workflows could not be loaded.");
+      setRuns(data.runs || []); setSelected(0);
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Recorded workflows could not be loaded."); }
+    finally { setBusy(false); }
+  }, [auth]);
+  useEffect(() => {
+    // The first authenticated load shares the manual refresh path.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+  const run = runs[selected];
+  const payload = run?.payload || {};
+  const calls: RunAgent[] = run ? [...(payload.agents || []), { ...(payload.central || {}), id: "central", name: "Sarathi Central" }] : [];
+  const actualCalls = calls.filter(call => call.metrics || call.model);
+  const totalTokens = runs.reduce((sum, item) => sum + Number(item.payload?.token_usage?.total_tokens || 0), 0);
   const liveSources = live.data?.sources.filter(source => source.status === "live").length ?? 0;
-  return <><Heading number="10" title="Admin profile" subtitle="Protected operations and platform oversight" live={live}/><div className="admin-banner"><ShieldCheck/><div><b>Administrator verified</b><p>{auth.profile.full_name || auth.user.email} · Role loaded from Supabase</p></div></div><div className="admin-grid"><a className="surface" href="/system"><Activity/><span>System health</span><strong>{live.busy ? "Checking" : `${liveSources} sources live`}</strong><ChevronRight/></a><a className="surface" href="/sources"><Globe2/><span>Provider registry</span><strong>Inspect provenance</strong><ChevronRight/></a><a className="surface" href="/agents"><Network/><span>Agent operations</span><strong>Review specialists</strong><ChevronRight/></a><a className="surface" href="/alerts"><ShieldCheck/><span>Alert review</span><strong>Human approval queue</strong><ChevronRight/></a></div><section className="surface admin-note"><KeyRound/><div><h2>Role management stays server-side</h2><p>Promote or revoke administrators through the Supabase SQL Editor or another trusted service-role process. The browser receives only the public publishable key and cannot modify roles.</p></div></section></>;
+  const download = () => {
+    if (!run) return;
+    const blob = new Blob([JSON.stringify(run.payload || run, null, 2)], { type: "application/json" });
+    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `sarathi-${run.run_id}.json`; link.click(); URL.revokeObjectURL(link.href);
+  };
+  return <><Heading number="10" title="Admin operations" subtitle="Recorded model calls, token use and end-to-end agent workflows"/><div className="admin-banner"><ShieldCheck/><div><b>Administrator verified</b><p>{auth.profile?.full_name || auth.user?.email} · Server-verified Supabase role</p></div><button className="button subtle" onClick={() => void load()} disabled={busy}><RefreshCw className={busy ? "spinning" : ""}/> Refresh records</button></div><div className="admin-summary"><article className="surface"><Database/><span>Recorded runs</span><strong>{busy ? "—" : runs.length}</strong></article><article className="surface"><Cpu/><span>Model calls</span><strong>{runs.reduce((sum, item) => sum + Number(item.payload?.token_usage?.model_calls || 0), 0)}</strong></article><article className="surface"><Braces/><span>Total tokens</span><strong>{totalTokens.toLocaleString()}</strong></article><article className="surface"><Activity/><span>Live sources now</span><strong>{live.busy ? "—" : liveSources}</strong></article></div>{error && <div className="notice failure"><Database/><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}{busy ? <div className="admin-empty"><div className="auth-spinner"/><p>Loading recorded workflows…</p></div> : !runs.length && !error ? <div className="admin-empty"><Database/><h2>No recorded workflows</h2><p>Run the backend and complete the Supabase storage migrations. Sarathi will show real run records here; it does not create sample calls.</p></div> : run && <div className="admin-console"><aside className="surface run-list"><header><span>RUN HISTORY</span><small>{runs.length} loaded</small></header>{runs.map((item, index) => <button key={item.run_id} aria-pressed={selected === index} onClick={() => setSelected(index)}><i/><span><b>{item.query || item.payload?.context?.query || "Untitled run"}</b><small>{new Date(item.generated_at).toLocaleString("en-IN")}</small></span><em>{item.ai_status || item.payload?.central?.status || "recorded"}</em></button>)}</aside><main className="admin-detail"><section className="surface run-header"><div><span className="eyebrow">SELECTED WORKFLOW</span><h2>{run.query || payload.context?.query || "Untitled run"}</h2><p>{payload.context?.location || run.location || "Location unavailable"} · {run.run_id}</p></div><button className="button subtle" onClick={download}><Download/> JSON</button><dl><dt>Started</dt><dd>{new Date(run.generated_at).toLocaleString("en-IN")}</dd><dt>Runtime</dt><dd>{payload.duration_ms != null ? `${payload.duration_ms.toLocaleString()} ms` : "Unavailable"}</dd><dt>Profile</dt><dd>{payload.profile || run.profile || "—"}</dd><dt>Connectivity</dt><dd>{payload.connectivity || run.connectivity || "—"}</dd></dl></section><section className="surface workflow-view"><header><div><GitBranch/><span><b>Execution workflow</b><small>Recorded stage outputs and status; private model reasoning is not stored.</small></span></div></header><div className="workflow-track">{[["01","Request accepted",payload.context?.query || run.query],["02","Router selected agents",`${(payload.agents || []).filter(agent => agent.selected_for_ai).length} selected for AI`],["03","Sources collected",Object.entries(payload.source_health || {}).map(([key,value]) => `${key}: ${value.status || "unknown"}`).join(" · ") || "No source health recorded"],["04","Specialists executed",`${payload.agents?.length || 0} agents recorded`],["05","Central synthesis",payload.central?.status || "not recorded"],["06","Storage checkpoint",payload.supabase?.status || "recorded in Supabase"]].map(([step,title,copy]) => <article key={step}><span>{step}</span><div><b>{title}</b><p>{copy}</p></div></article>)}</div></section><section className="model-calls"><header><div><Cpu/><span><b>Model and agent calls</b><small>{actualCalls.length} model stages · {Number(payload.token_usage?.total_tokens || 0).toLocaleString()} total tokens</small></span></div></header><div className="call-grid">{calls.map(call => <article className="surface call-card" key={call.id || call.name}><header><span><b>{call.name || call.id || "Agent"}</b><small>{call.source || (call.id === "central" ? "Coordinator" : "Source unavailable")}</small></span><Pill tone={call.status === "failed" ? "red" : call.status === "completed" ? "green" : "muted"}>{call.status || call.ai_status || "not run"}</Pill></header><dl><dt>Model</dt><dd>{call.model || "No model call"}</dd><dt>Latency</dt><dd>{call.metrics?.latency_ms != null ? `${call.metrics.latency_ms} ms` : "—"}</dd><dt>Input</dt><dd>{call.metrics?.input_tokens?.toLocaleString() || "—"}</dd><dt>Output</dt><dd>{call.metrics?.output_tokens?.toLocaleString() || "—"}</dd><dt>Total</dt><dd>{call.metrics?.total_tokens?.toLocaleString() || "—"}</dd><dt>Count</dt><dd>{call.metrics ? call.metrics.input_count_exact ? "Exact" : "Estimated" : "—"}</dd></dl>{call.error && <p className="call-error">{call.error}</p>}<details><summary>Recorded output</summary><pre>{call.report || "No report stored for this stage."}</pre></details></article>)}</div></section></main></div>}<section className="surface admin-note"><KeyRound/><div><h2>Roles and secrets stay server-side</h2><p>New signups receive the user role. Promote administrators only through a trusted Supabase service context. The browser receives public configuration and a short-lived user session; workflow access is checked again by the admin API.</p></div></section></>;
 }
 
 function Sources({ live, system }: { live: Live; system: boolean }) { return <><Heading number={system ? "08" : "07"} title={system ? "System health" : "Sources"} subtitle="Current connection status and source provenance" live={live}/><State live={live}/><div className="sources-grid">{live.data?.sources.map(s => <article className="surface provider" key={s.name}><header><Activity/><Pill tone={s.status === "live" ? "green" : "muted"}>{s.status}</Pill></header><h2>{s.name}</h2><p>{s.authority}</p><dl><dt>Retrieved</dt><dd>{s.status === "live" ? time(s.fetchedAt) + " IST" : "Unavailable"}</dd></dl>{s.message && <p>{s.message}</p>}<a href={s.name === "Open-Meteo" ? "https://open-meteo.com/en/docs" : s.name === "EONET" ? "https://eonet.gsfc.nasa.gov/docs/v3" : "https://earthquake.usgs.gov/earthquakes/feed/"} target="_blank" rel="noreferrer">Source documentation <ArrowUpRight/></a></article>)}</div><div className="capability-note"><ShieldCheck/><p>Only successful provider responses produce measurements. Empty successful event feeds and unavailable feeds are shown separately.</p></div></>; }

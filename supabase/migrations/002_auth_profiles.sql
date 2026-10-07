@@ -1,4 +1,4 @@
--- Google-authenticated Sarathi profiles with server-controlled roles.
+-- Email/password Sarathi profiles with server-controlled roles.
 -- Run after 001_saarthi_storage.sql in the Supabase SQL Editor.
 
 create table if not exists public.profiles (

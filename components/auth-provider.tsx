@@ -21,8 +21,10 @@ type AuthState = {
   user: User | null;
   profile: SarathiProfile | null;
   error: string;
-  signInWithGoogle: () => Promise<void>;
+  signInWithPassword: (email: string, password: string, captchaToken: string, destination?: "/profile" | "/admin") => Promise<{ ok: boolean; error?: string }>;
+  signUpWithPassword: (name: string, email: string, password: string, captchaToken: string) => Promise<{ ok: boolean; confirmationRequired?: boolean; error?: string }>;
   signOut: () => Promise<void>;
+  getAccessToken: () => Promise<string | null>;
   updateName: (fullName: string) => Promise<boolean>;
   refreshProfile: () => Promise<void>;
 };
@@ -54,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     client.auth.getUser().then(({ data, error: authError }) => {
       if (!active) return;
-      if (authError) setError(authError.message);
+      if (authError && authError.name !== "AuthSessionMissingError") setError(authError.message);
       void loadProfile(data.user).finally(() => active && setLoading(false));
     });
     const { data: subscription } = client.auth.onAuthStateChange((_event, session) => {
@@ -64,16 +66,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false; subscription.subscription.unsubscribe(); };
   }, [configured, loadProfile]);
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithPassword = useCallback(async (email: string, password: string, captchaToken: string, destination: "/profile" | "/admin" = "/profile") => {
     const client = getSupabaseBrowserClient();
-    if (!client) { setError("Add the public Supabase URL and publishable key to enable Google sign-in."); return; }
+    if (!client) return { ok: false, error: "Add the public Supabase URL and publishable key to enable sign-in." };
     setError("");
-    const { error: oauthError } = await client.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    const { data, error: authError } = await client.auth.signInWithPassword({
+      email: email.trim(), password, options: { captchaToken },
     });
-    if (oauthError) setError(oauthError.message);
-  }, []);
+    if (authError || !data.user) {
+      const message = authError?.message || "Sign-in failed.";
+      setError(message); return { ok: false, error: message };
+    }
+    await loadProfile(data.user);
+    router.push(destination);
+    return { ok: true };
+  }, [loadProfile, router]);
+
+  const signUpWithPassword = useCallback(async (name: string, email: string, password: string, captchaToken: string) => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return { ok: false, error: "Add the public Supabase URL and publishable key to enable signup." };
+    setError("");
+    const { data, error: signUpError } = await client.auth.signUp({
+      email: email.trim(), password,
+      options: {
+        captchaToken,
+        data: { full_name: name.trim().slice(0, 100) },
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/profile")}`,
+      },
+    });
+    if (signUpError || !data.user) {
+      const message = signUpError?.message || "Signup failed.";
+      setError(message); return { ok: false, error: message };
+    }
+    if (data.session) { await loadProfile(data.user); router.push("/profile"); }
+    return { ok: true, confirmationRequired: !data.session };
+  }, [loadProfile, router]);
 
   const signOut = useCallback(async () => {
     const client = getSupabaseBrowserClient();
@@ -93,7 +120,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(data as SarathiProfile); setError(""); return true;
   }, [user]);
 
-  const value = useMemo<AuthState>(() => ({ configured, loading, user, profile, error, signInWithGoogle, signOut, updateName, refreshProfile: () => loadProfile(user) }), [configured, loading, user, profile, error, signInWithGoogle, signOut, updateName, loadProfile]);
+  const getAccessToken = useCallback(async () => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return null;
+    const { data } = await client.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
+
+  const value = useMemo<AuthState>(() => ({ configured, loading, user, profile, error, signInWithPassword, signUpWithPassword, signOut, getAccessToken, updateName, refreshProfile: () => loadProfile(user) }), [configured, loading, user, profile, error, signInWithPassword, signUpWithPassword, signOut, getAccessToken, updateName, loadProfile]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
