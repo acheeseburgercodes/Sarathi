@@ -63,6 +63,11 @@ class LocalStore:
                 (run["run_id"], run["generated_at"], json.dumps(run, ensure_ascii=False)),
             )
 
+    def latest_run(self) -> Optional[dict[str, Any]]:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM runs ORDER BY generated_at DESC LIMIT 1").fetchone()
+        return json.loads(row[0]) if row else None
+
     def queue_sync(self, run: dict[str, Any], error: str) -> None:
         with self._connect() as connection:
             connection.execute(

@@ -11,6 +11,8 @@ npm run dev
 
 The development server uses http://127.0.0.1:5173. Build with `npm run build`. Run the production Worker locally with `npm run start`.
 
+On Windows, double-click `run.bat` with no arguments to start the Python API on `127.0.0.1:8765`, start the React/TypeScript command center through the standard Next.js local runtime on `127.0.0.1:5173`, and open it in the default browser. Closing the frontend process also stops the background Python service. Passing a prompt to `run.bat` preserves CLI mode.
+
 ## CLI backend
 
 The backend can run independently of the web interface:
@@ -41,7 +43,7 @@ The dependency-free Python implementation is the primary terminal backend. On Wi
 .\run.bat --json --no-save "Return the frontend response contract"
 ```
 
-`run.bat` detects the Python launcher, loads `.env` and `.env.local`, runs all source adapters and agents, prints the central report, source health and token ledger, and saves a complete JSON run under `outputs/runs`. No pip installation is required; Python 3.10 or newer is sufficient.
+In CLI mode, `run.bat` detects the Python launcher, loads `.env` and `.env.local`, runs selected source adapters and agents, prints the central report, source health and token ledger, and saves a complete JSON run under `outputs/runs`. No pip installation is required; Python 3.10 or newer is sufficient.
 
 For each executed model call, the terminal and saved JSON include the selected model, status, latency, input tokens, output tokens, total tokens, cached input tokens when reported, reasoning tokens when reported, and whether the preflight input count was exact or estimated.
 

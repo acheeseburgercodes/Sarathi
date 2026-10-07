@@ -91,6 +91,13 @@ class CacheTests(unittest.TestCase):
             store.mark_sync_complete(pending["id"])
             self.assertEqual(store.pending_sync_count(), 0)
 
+    def test_latest_run_returns_newest_saved_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalStore(Path(directory) / "saarthi.db")
+            store.save_run({"run_id": "old", "generated_at": "2026-10-06T00:00:00Z"})
+            store.save_run({"run_id": "new", "generated_at": "2026-10-07T00:00:00Z"})
+            self.assertEqual(store.latest_run()["run_id"], "new")
+
 
 class SupabaseTests(unittest.TestCase):
     @staticmethod

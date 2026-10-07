@@ -5,20 +5,17 @@ chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
-where py >nul 2>nul
-if not errorlevel 1 goto use_py
-
-where python >nul 2>nul
-if errorlevel 1 (
-  echo Python 3 was not found. Install Python 3.10 or newer and try again.
-  pause
-  exit /b 1
-)
-python python_backend\main.py %*
+if not "%~1"=="" goto cli
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\run-sarathi.ps1"
 goto finished
 
-:use_py
-py -3 python_backend\main.py %*
+:cli
+where py >nul 2>nul
+if not errorlevel 1 (
+  py -3 python_backend\main.py %*
+) else (
+  python python_backend\main.py %*
+)
 
 :finished
 

@@ -1,5 +1,5 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "sarathi-command-center",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -8,7 +8,10 @@
   "scripts": {
     "install:ci": "node scripts/install-ci.mjs",
     "dev": "node scripts/run-framework.mjs dev",
+    "dev:local": "next dev -p 5173 -H 127.0.0.1",
     "build": "node scripts/run-framework.mjs build",
+    "build:local": "next build",
+    "start:local": "next start -p 5173 -H 127.0.0.1",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "sarathi": "node cli/sarathi.mjs",
     "test:backend": "node --test tests/backend-cli.test.mjs",
