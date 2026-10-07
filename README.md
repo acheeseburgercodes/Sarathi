@@ -30,7 +30,9 @@ The query router fetches only relevant sources and returns only relevant special
 
 Agents use separate Responses API calls and role-specific instructions. Set `SARATHI_WEATHER_MODEL`, `SARATHI_CLIMATE_MODEL`, `SARATHI_NEWS_MODEL`, `SARATHI_SEISMIC_MODEL`, `SARATHI_EVENTS_MODEL` or `SARATHI_CENTRAL_MODEL` to use different model or fine-tuned model IDs. The default model comes from `OPENAI_MODEL` and falls back to `gpt-5-mini`.
 
-The default run budget allows five model calls, 30,000 input tokens, 8,000 output tokens and 38,000 total tokens. Each request is preflight-counted with the Responses input-token endpoint when available and reserved in a shared ledger before execution. Every result includes per-agent and total usage. Limits can be changed through the `SARATHI_MAX_*` variables documented in `.env.example`.
+The default `central-only` AI strategy makes at most one synthesis-model call per run. Specialist agents still retrieve, validate and structure their own real API evidence locally before reporting to Central. Each request is preflight-counted and reserved in a shared ledger; every result includes per-agent and total usage. The hard limits remain available through the `SARATHI_MAX_*` variables documented in `.env.example`.
+
+If OpenAI returns a credit or rate-limit response, Sarathi opens a circuit breaker for that run, stops further OpenAI calls, and returns a deterministic source-attributed evidence report. Rejected quota calls record zero consumed tokens. Set `SARATHI_AI_STRATEGY=off` for permanently free evidence-only operation, or explicitly use `full` to restore per-specialist model calls plus Central synthesis.
 
 ## Python backend
 

@@ -29,16 +29,19 @@ export async function runSarathiCli(options = {}) {
   const client = options.client || new OpenAIResponsesClient({ apiKey: options.apiKey, fetchImpl: options.modelFetch || fetch });
   const defaultModel = options.model || process.env.OPENAI_MODEL || "gpt-5-mini";
   const useAi = options.useAi !== false;
+  const requestedStrategy = options.aiStrategy || process.env.SARATHI_AI_STRATEGY || "central-only";
+  const strategy = ["central-only", "full", "off"].includes(requestedStrategy) ? requestedStrategy : "central-only";
+  const aiEnabled = useAi && strategy !== "off";
   const sources = options.sources || await collectSources(context, options.fetchImpl || fetch);
-  const specialists = await Promise.all(AGENTS.map(agent => runSpecialist(agent, sources[agent.id], { ...context, defaultModel, client, budget, useAi })));
+  const specialists = await Promise.all(AGENTS.map(agent => runSpecialist(agent, sources[agent.id], { ...context, defaultModel, client, budget, useAi: aiEnabled && strategy === "full" })));
 
   let central = { status: "evidence-only", model: null, error: null, report: fallbackReport({ ...context, specialists }) };
-  if (useAi && client.available) {
+  if (aiEnabled && client.available) {
     const model = process.env.SARATHI_CENTRAL_MODEL || defaultModel;
     const input = JSON.stringify({ task: context.query, location: context.location, coordinates: { latitude: context.latitude, longitude: context.longitude }, specialistReports: specialists.map(({ id, name, sourceStatus, source, status, report, error }) => ({ id, name, sourceStatus, source, status, report, error })) });
     try {
       const result = await client.run({ agent: "central", model, instructions: CENTRAL_RULES, input, maxOutputTokens: 2_400, budget });
-      central = { status: result.status, model: result.model, error: result.error, report: result.text || central.report };
+      central = { status: result.status === "completed" ? "completed" : "evidence-only", aiStatus: result.status, model: result.model, error: result.error, report: result.text || central.report };
     } catch (error) {
       central = { ...central, status: "budget-blocked", error: error instanceof Error ? error.message : "Central synthesis was blocked." };
     }
@@ -49,7 +52,7 @@ export async function runSarathiCli(options = {}) {
     generatedAt: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
     context,
-    ai: { requested: useAi, available: client.available, defaultModel },
+    ai: { requested: useAi, available: client.available, defaultModel, strategy, specialistMode: strategy === "full" ? "model" : "local-evidence", fallbackActive: !client.available || !aiEnabled, fallbackReason: client.disabledReason || null },
     central,
     specialists,
     sourceHealth: Object.fromEntries(Object.entries(sources).map(([id, value]) => [id, { status: value.status, error: value.error }])),

@@ -42,9 +42,33 @@ test("four specialists report to the central agent within one shared budget", as
     seismic: { status: "available", error: null, data: { source: "seismic", events: [] } },
     events: { status: "available", error: null, data: { source: "events", events: [] } },
   };
-  const result = await runSarathiCli({ query: "brief me", sources, client });
+  const result = await runSarathiCli({ query: "brief me", sources, client, aiStrategy: "full" });
   assert.deepEqual(calls.sort(), ["central", "events", "news", "seismic", "weather"]);
   assert.equal(result.central.report, "central report");
   assert.equal(result.tokenUsage.modelCalls, 5);
   assert.equal(result.tokenUsage.totalTokens, 350);
+});
+
+test("central-only strategy makes one model call", async () => {
+  const calls = [];
+  const client = {
+    available: true,
+    disabledReason: null,
+    async run({ agent, model, maxOutputTokens, budget }) {
+      calls.push(agent);
+      const reservation = budget.reserve(agent, 50, maxOutputTokens);
+      budget.commit(reservation, { inputTokens: 50, outputTokens: 20 });
+      return { status: "completed", text: "central report", model, error: null };
+    },
+  };
+  const sources = {
+    weather: { status: "available", error: null, data: { source: "weather", current: {}, hourly: [] } },
+    news: { status: "available", error: null, data: { source: "news", articles: [] } },
+    seismic: { status: "available", error: null, data: { source: "seismic", events: [] } },
+    events: { status: "available", error: null, data: { source: "events", events: [] } },
+  };
+  const result = await runSarathiCli({ query: "brief me", sources, client, aiStrategy: "central-only" });
+  assert.deepEqual(calls, ["central"]);
+  assert.equal(result.tokenUsage.modelCalls, 1);
+  assert.equal(result.ai.specialistMode, "local-evidence");
 });

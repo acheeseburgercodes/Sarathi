@@ -25,11 +25,12 @@ CENTRAL_RULES = (
 )
 
 
-def _fallback(context: dict[str, Any], specialists: list[dict[str, Any]]) -> str:
+def _fallback(context: dict[str, Any], specialists: list[dict[str, Any]], reason: Optional[str] = None) -> str:
     sections = [f"SAARTHI SITUATION REPORT — {context['location']}", f"Task: {context['query']}", ""]
     for agent in specialists:
         sections.extend([f"{agent['name']} [{agent['status']}]", agent["report"], ""])
-    sections.append("Central AI synthesis is unavailable, disabled, or budget-blocked. The report contains extracted evidence and source status only.")
+    suffix = f" Reason: {reason}" if reason else ""
+    sections.append(f"Local evidence fallback active. This report is assembled deterministically from extracted source evidence; no generated claims were added.{suffix}")
     return "\n".join(sections)
 
 
@@ -42,23 +43,29 @@ def run_saarthi(*, query: str, profile: str = "standard", location: str = "Chenn
     budget = TokenBudget(limits)
     client = client or OpenAIResponsesClient()
     default_model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+    strategy = os.getenv("SARATHI_AI_STRATEGY", "central-only").strip().lower()
+    if strategy not in {"central-only", "full", "off"}:
+        strategy = "central-only"
+    ai_enabled = use_ai and strategy != "off"
     selected_sources = route_agents(context["query"], profile)
     sources = collect_sources(context, store, offline=offline, timeout=6 if profile == "remote" else 12, source_names=selected_sources)
-    specialists = run_specialists(sources, context, client, budget, use_ai, default_model, profile)
+    specialists = run_specialists(sources, context, client, budget, ai_enabled and strategy == "full", default_model, profile)
     central = {"status": "evidence-only", "ai_status": "not-run", "model": None, "metrics": None, "error": None, "report": _fallback(context, specialists)}
-    if use_ai and client.available:
+    if ai_enabled and client.available:
         model = os.getenv("SARATHI_CENTRAL_MODEL") or default_model
         compact_agents = [{key: agent[key] for key in ("id", "name", "source_status", "source", "status", "report", "error")} for agent in specialists]
         try:
             result = client.run(agent="central", model=model, instructions=CENTRAL_RULES, input_data={"task": query, "location": location, "specialists": compact_agents}, max_output_tokens=500 if profile == "remote" else 2400, budget=budget)
             status = "completed" if result["status"] == "completed" else "evidence-only"
             central = {"status": status, "ai_status": result["status"], "model": result["model"], "metrics": result.get("metrics"), "error": result["error"], "report": result["text"] or central["report"]}
+            if result["status"] == "credit-fallback":
+                central["report"] = _fallback(context, specialists, "OpenAI credits or rate limit unavailable; further model calls were stopped.")
         except BudgetExceeded as error:
             central = {**central, "ai_status": "budget-blocked", "error": str(error)}
     run = {
         "schema_version": "1.0", "run_id": str(uuid.uuid4()), "generated_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": round((time.monotonic() - started) * 1000), "profile": profile, "connectivity": "offline" if offline else "online-with-cache-fallback",
-        "context": context, "ai": {"requested": use_ai, "available": client.available, "default_model": default_model},
+        "context": context, "ai": {"requested": use_ai, "available": client.available, "default_model": default_model, "strategy": strategy, "specialist_mode": "model" if strategy == "full" else "local-evidence", "fallback_active": not client.available or not ai_enabled, "fallback_reason": getattr(client, "fallback_reason", None)},
         "source_health": {name: {"status": value["status"], "cache_age_seconds": value["cache_age_seconds"], "error": value["error"]} for name, value in sources.items()},
         "agents": specialists, "central": central, "token_usage": budget.snapshot(),
     }

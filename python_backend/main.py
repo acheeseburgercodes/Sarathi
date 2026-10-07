@@ -70,6 +70,10 @@ def print_terminal(run: dict) -> None:
     print(f"  Input  {usage['input_tokens']}/{limits['max_input_tokens']}")
     print(f"  Output {usage['output_tokens']}/{limits['max_output_tokens']}")
     print(f"  Total  {usage['total_tokens']}/{limits['max_total_tokens']}")
+    print(f"  Strategy {run['ai'].get('strategy', 'legacy')}")
+    if run["ai"].get("fallback_active"):
+        reason = run["ai"].get("fallback_reason") or "AI disabled by strategy; deterministic evidence report used."
+        print(f"\nAI FALLBACK: {reason}")
     if run["ai"]["requested"] and not run["ai"]["available"]:
         print("\nAI STATUS: OPENAI_API_KEY is not configured. Evidence extraction completed without generated claims.")
     sync = run["supabase"]

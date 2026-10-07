@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "python_backend"))
 
 from saarthi.agents import route_agents  # noqa: E402
 from saarthi.config import PROFILES, TokenLimits  # noqa: E402
-from saarthi.openai_client import OpenAIResponsesClient  # noqa: E402
+from saarthi.openai_client import OpenAIQuotaError, OpenAIResponsesClient  # noqa: E402
 from saarthi.orchestrator import run_saarthi  # noqa: E402
 from saarthi.sources import climate_source  # noqa: E402
 from saarthi.storage import LocalStore  # noqa: E402
@@ -42,6 +42,24 @@ class TokenBudgetTests(unittest.TestCase):
         central = budget.reserve("central", 900, 100)
         budget.commit(central, 900, 25)
         self.assertEqual(budget.snapshot()["model_calls"], 1)
+
+    def test_quota_failure_opens_circuit_and_prevents_followup_call(self):
+        client = OpenAIResponsesClient(api_key="test", exact_count=False)
+        calls = []
+
+        def quota(*_args, **_kwargs):
+            calls.append("request")
+            client._open_circuit("credit balance exhausted")
+            raise OpenAIQuotaError("credit balance exhausted")
+
+        client._post = quota
+        budget = TokenBudget(TokenLimits(3, 2000, 600, 2600, 1200, 300))
+        first = client.run(agent="central", model="test", instructions="rules", input_data={"x": 1}, max_output_tokens=200, budget=budget)
+        second = client.run(agent="central", model="test", instructions="rules", input_data={"x": 2}, max_output_tokens=200, budget=budget)
+        self.assertEqual(first["status"], "credit-fallback")
+        self.assertEqual(second["status"], "credit-fallback")
+        self.assertEqual(calls, ["request"])
+        self.assertEqual(budget.snapshot()["total_tokens"], 0)
 
 
 class RoutingTests(unittest.TestCase):
@@ -155,12 +173,33 @@ class OrchestrationTests(unittest.TestCase):
                 return {"status": "completed", "text": f"{agent} output", "model": model, "error": None, "metrics": {"latency_ms": 12, "input_tokens": 100, "output_tokens": 25, "total_tokens": 125, "cached_input_tokens": 0, "reasoning_tokens": 0, "input_count_exact": True}}
 
         client = FakeClient()
-        with tempfile.TemporaryDirectory() as directory, patch("saarthi.orchestrator.collect_sources", return_value=self.sources()):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"SARATHI_AI_STRATEGY": "full"}), patch("saarthi.orchestrator.collect_sources", return_value=self.sources()):
             run = run_saarthi(query="weather and earthquake briefing", profile="remote", root=Path(directory), client=client)
         self.assertEqual(client.calls, ["weather", "central"])
         self.assertEqual(run["token_usage"]["model_calls"], 2)
         self.assertEqual(run["central"]["report"], "central output")
         self.assertEqual(run["central"]["metrics"]["total_tokens"], 125)
+
+    def test_default_strategy_uses_one_central_call(self):
+        class FakeClient:
+            available = True
+            fallback_reason = None
+
+            def __init__(self):
+                self.calls = []
+
+            def run(self, *, agent, model, instructions, input_data, max_output_tokens, budget):
+                self.calls.append(agent)
+                reservation = budget.reserve(agent, 100, max_output_tokens)
+                budget.commit(reservation, 100, 20)
+                return {"status": "completed", "text": "central output", "model": model, "error": None, "metrics": {"latency_ms": 5, "input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "cached_input_tokens": 0, "reasoning_tokens": 0, "input_count_exact": True}}
+
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"SARATHI_AI_STRATEGY": "central-only"}), patch("saarthi.orchestrator.collect_sources", return_value=self.sources()):
+            run = run_saarthi(query="complete briefing", root=Path(directory), client=client)
+        self.assertEqual(client.calls, ["central"])
+        self.assertEqual(run["ai"]["strategy"], "central-only")
+        self.assertEqual(run["token_usage"]["model_calls"], 1)
 
     def test_narrow_query_omits_irrelevant_agents(self):
         with tempfile.TemporaryDirectory() as directory, patch("saarthi.orchestrator.collect_sources", return_value=self.sources()) as collect:
