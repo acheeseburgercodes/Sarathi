@@ -6,6 +6,7 @@ import { Activity, ArrowDown, ArrowUpRight, Braces, ChevronRight, CloudRain, Cpu
 import { OperationalMap, type HeatMetric, type MapPoint } from "./operational-map";
 import type { getLiveDashboard } from "@/lib/live-data";
 import { useAuth } from "./auth-provider";
+import { ContainerScroll } from "./container-scroll";
 
 type Snapshot = Awaited<ReturnType<typeof getLiveDashboard>>;
 type EventItem = MapPoint & { date?: string; time?: string; link?: string; magnitude?: number };
@@ -90,11 +91,15 @@ function useScrollReveal() {
     return () => observer.disconnect();
   }, []);
 }
+function ScrollMapHero({ live }: { live: Live }) {
+  return <ContainerScroll status={live.busy ? "CONNECTING" : live.data ? "ONLINE" : "UNAVAILABLE"} titleComponent={<><p className="eyebrow"><span/> DISASTER INTELLIGENCE · EARLY WARNING · PUBLIC SAFETY</p><h1>Monitor threats.<br/><em>Coordinate the response.</em></h1><p>Scroll into a live operational view, then explore current weather and hazard intelligence directly on the map.</p></>} footer={<><p>Investigate live conditions, inspect source evidence, prepare a SITREP, and coordinate the next response step.</p><a className="button primary" href="/command">Open live command <ArrowUpRight/></a></>}>
+    <OperationalMap/><div className="tablet-map-caption"><span className="eyebrow">REGIONAL OPERATIONS</span><h2>Chennai, India</h2><p><MapPin/>13.0827° N · 80.2707° E</p></div><div className="tablet-weather"><div><CloudRain/><Pill tone={live.data?.weather ? "green" : "muted"}>{live.busy ? "CONNECTING" : live.data?.weather ? "LIVE" : "UNAVAILABLE"}</Pill></div><span>Rainfall · last 24h</span><strong>{live.data?.weather?.rain24h ?? "—"}<small>mm</small></strong><p>{live.data?.weather ? `Open-Meteo · ${time(live.data.fetchedAt)} IST` : "Waiting for current weather data"}</p></div><div className="tablet-map-label">INTERACTIVE MAP <i/> Drag · zoom · change layers</div>
+  </ContainerScroll>;
+}
 function Home({ live }: { live: Live }) {
   useScrollReveal();
   return <>
-    <section className="landing-intro"><p className="eyebrow"><span/> DISASTER INTELLIGENCE · EARLY WARNING · PUBLIC SAFETY</p><div><h1>Monitor threats.<br/><em>Coordinate the response.</em></h1><section><p>Open the live map, investigate weather and hazard signals, inspect their sources, generate a current SITREP, or ask Sarathi a public-safety question.</p><a className="button primary" href="/command">Open live command <ArrowUpRight/></a></section></div></section>
-    <section className="landing-map"><OperationalMap/><div className="map-caption"><span className="eyebrow">REGIONAL OPERATIONS</span><h2>Chennai, India</h2><p><MapPin/>13.0827° N · 80.2707° E</p></div><div className="landing-weather"><div><CloudRain/><Pill tone={live.data?.weather ? "green" : "muted"}>{live.busy ? "CONNECTING" : live.data?.weather ? "CONNECTED" : "UNAVAILABLE"}</Pill></div><span>Precipitation · last 24h</span><strong>{live.data?.weather?.rain24h ?? "—"}<small>mm</small></strong><p>{live.data?.weather ? `Open-Meteo · ${time(live.data.fetchedAt)} IST` : "Waiting for current weather data"}</p><a href="/command">Explore current conditions <ChevronRight/></a></div><div className="map-label">REAL STREET MAP <i/> Drag to explore · + / − to zoom</div></section>
+    <ScrollMapHero live={live}/>
     <SourcesLine live={live}/><State live={live}/>
     <a className="discover" href="#platform">Explore the platform <ArrowDown/></a>
     <section id="platform" className="about-section" data-reveal data-slide="left"><span className="eyebrow">01 / OPERATIONAL WORKFLOW</span><h2>Move from a signal<br/>to a decision.</h2><p>Sarathi organizes the response loop around one shared incident picture: detect a signal, investigate it on the map, check the evidence, assess risk, and turn the result into a report or reviewed alert.</p></section>
