@@ -54,4 +54,5 @@ next-env.d.ts
 /outputs/
 /data/
 /work/
+/.runlogs/
 *.tsbuildinfo
