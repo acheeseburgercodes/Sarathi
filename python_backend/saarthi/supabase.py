@@ -5,6 +5,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
+import urllib.error
 from typing import Any, Callable, Optional
 
 
@@ -13,10 +14,19 @@ Transport = Callable[[str, bytes, dict[str, str], int], None]
 
 def _default_transport(url: str, body: bytes, headers: dict[str, str], timeout: int) -> None:
     request = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        if response.status not in (200, 201, 204):
-            raise RuntimeError(f"Supabase Data API returned HTTP {response.status}")
-        response.read()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            if response.status not in (200, 201, 204):
+                raise RuntimeError(f"Supabase Data API returned HTTP {response.status}")
+            response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:500]
+        table = urllib.parse.urlparse(url).path.rsplit("/", 1)[-1]
+        if error.code == 404 and ("PGRST205" in detail or "Could not find the table" in detail):
+            raise RuntimeError(
+                f"Supabase schema is missing table '{table}'. Apply migrations 001, 002 and 003 from supabase/migrations in the Supabase SQL Editor."
+            ) from error
+        raise RuntimeError(f"Supabase Data API returned HTTP {error.code}: {detail}") from error
 
 
 class SupabaseClient:
