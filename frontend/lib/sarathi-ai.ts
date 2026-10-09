@@ -134,10 +134,22 @@ function extractOutputText(payload: unknown) {
   return (result.output || []).flatMap(item => item.content || []).filter(item => item.type === "output_text" && typeof item.text === "string").map(item => item.text as string).join("\n");
 }
 
+function extractGeminiText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const result = payload as { candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }> };
+  return (result.candidates || [])
+    .flatMap(candidate => candidate.content?.parts || [])
+    .filter(part => typeof part.text === "string")
+    .map(part => part.text as string)
+    .join("\n");
+}
+
 async function synthesize(query: string, evidence: Evidence[], verification: object, budget: TokenManager) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-  if (!apiKey) return { status: "unavailable" as const, model: null, answer: null, error: "OPENAI_API_KEY is not configured." };
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const openAiApiKey = process.env.OPENAI_API_KEY;
+  const usingGemini = Boolean(geminiApiKey);
+  const model = usingGemini ? process.env.GEMINI_MODEL || "gemini-2.5-flash-lite" : process.env.OPENAI_MODEL || "gpt-5-mini";
+  if (!geminiApiKey && !openAiApiKey) return { status: "unavailable" as const, model: null, answer: null, error: "No AI provider API key is configured." };
 
   const evidenceJson = JSON.stringify({ query, evidence: evidence.slice(0, AI_LIMITS.maxEvidenceItems), verification });
   const instructions = [
@@ -152,10 +164,33 @@ async function synthesize(query: string, evidence: Evidence[], verification: obj
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_LIMITS.maxExecutionMs);
   try {
+    if (usingGemini) {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "x-goog-api-key": geminiApiKey as string, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: instructions }] },
+          contents: [{ role: "user", parts: [{ text: `EVIDENCE_JSON\n${evidenceJson}` }] }],
+          generationConfig: { maxOutputTokens: AI_LIMITS.maxOutputTokens, temperature: 0.2 },
+        }),
+      });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: { message?: string; status?: string } } | null;
+        const detail = failure?.error?.message || failure?.error?.status;
+        throw new Error(`Gemini synthesis failed with HTTP ${response.status}${detail ? `: ${detail}` : "."}`);
+      }
+      const payload = await response.json() as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } };
+      budget.record(payload.usageMetadata?.promptTokenCount || 0, payload.usageMetadata?.candidatesTokenCount || 0);
+      const answer = extractGeminiText(payload);
+      if (!answer) throw new Error("Gemini returned no text output.");
+      return { status: "available" as const, model, answer: humanizeAnswer(answer), error: null };
+    }
+
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${openAiApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, input, max_output_tokens: AI_LIMITS.maxOutputTokens, store: false, reasoning: { effort: "minimal" } }),
     });
     if (!response.ok) {
