@@ -148,7 +148,7 @@ async function synthesize(query: string, evidence: Evidence[], verification: obj
   const geminiApiKey = process.env.GEMINI_API_KEY;
   const openAiApiKey = process.env.OPENAI_API_KEY;
   const usingGemini = Boolean(geminiApiKey);
-  const model = usingGemini ? process.env.GEMINI_MODEL || "gemini-2.5-flash-lite" : process.env.OPENAI_MODEL || "gpt-5-mini";
+  const model = usingGemini ? process.env.GEMINI_MODEL || "gemini-3.5-flash-lite" : process.env.OPENAI_MODEL || "gpt-5-mini";
   if (!geminiApiKey && !openAiApiKey) return { status: "unavailable" as const, model: null, answer: null, error: "No AI provider API key is configured." };
 
   const evidenceJson = JSON.stringify({ query, evidence: evidence.slice(0, AI_LIMITS.maxEvidenceItems), verification });
