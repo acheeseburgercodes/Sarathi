@@ -25,7 +25,15 @@ export async function POST(request: Request) {
   const body = raw && typeof raw === "object" ? raw as { query?: unknown; profile?: unknown } : {};
   const query = typeof body.query === "string" ? body.query.trim().slice(0, 2000) : "";
   if (!query) return Response.json({ message: "Enter a question." }, { status: 400 });
-  const backend = process.env.SARATHI_BACKEND_URL || "http://127.0.0.1:8765";
+  const backend = process.env.SARATHI_BACKEND_URL?.trim();
+  if (!backend) {
+    const result = await runSarathi(query);
+    return Response.json(
+      { ...result, backend: "typescript" },
+      { headers: { "Cache-Control": "no-store", "X-Sarathi-Backend": "typescript" } },
+    );
+  }
+
   try {
     const response = await fetch(`${backend}/api/run`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, profile: typeof body.profile === "string" ? body.profile : "standard" }), cache: "no-store" });
     const result = await response.json() as PythonRun | { message?: string };

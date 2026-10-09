@@ -1,5 +1,12 @@
 export async function GET() {
-  const backend = process.env.SARATHI_BACKEND_URL || "http://127.0.0.1:8765";
+  const backend = process.env.SARATHI_BACKEND_URL?.trim();
+  if (!backend) {
+    return Response.json(
+      { status: "available", service: "sarathi-typescript", runtime: "vercel" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   try {
     const response = await fetch(`${backend}/health`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

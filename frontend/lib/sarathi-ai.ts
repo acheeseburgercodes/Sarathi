@@ -158,7 +158,17 @@ async function synthesize(query: string, evidence: Evidence[], verification: obj
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, input, max_output_tokens: AI_LIMITS.maxOutputTokens, store: false, reasoning: { effort: "minimal" } }),
     });
-    if (!response.ok) throw new Error(`OpenAI request failed with HTTP ${response.status}.`);
+    if (!response.ok) {
+      const failure = await response.json().catch(() => null) as { error?: { code?: string; type?: string } } | null;
+      const code = failure?.error?.code || failure?.error?.type;
+      if (response.status === 429 && (code === "credit_balance_exhausted" || code === "insufficient_quota")) {
+        throw new Error("AI synthesis is unavailable because the configured OpenAI project has no API credits remaining.");
+      }
+      if (response.status === 429) {
+        throw new Error("AI synthesis is temporarily rate-limited. Please try again shortly.");
+      }
+      throw new Error(`AI synthesis request failed with HTTP ${response.status}.`);
+    }
     const payload = await response.json() as { usage?: { input_tokens?: number; output_tokens?: number } };
     budget.record(payload.usage?.input_tokens || 0, payload.usage?.output_tokens || 0);
     const answer = extractOutputText(payload);
